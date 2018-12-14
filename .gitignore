@@ -1,4 +1,5 @@
 .idea/
 dist/
 s3kor.linux
+s3kor.mac
 s3kor.linux.gz

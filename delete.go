@@ -185,14 +185,57 @@ func listObjects(s3URL url.URL, resultsChan chan<- []*s3.ObjectIdentifier, bar *
 
 }
 
-func delete(sess *session.Session, path string, recursive bool, versions bool) {
+func checkBucket(sess *session.Session, bucket string, autoRegion bool) (svc *s3.S3, err error) {
+
+	var logger = zap.S()
+
+	svc = s3.New(sess, &aws.Config{MaxRetries: aws.Int(30)})
+
+	result, err := svc.GetBucketLocation(&s3.GetBucketLocationInput{
+		Bucket: aws.String(bucket),
+	})
+
+	if err != nil {
+
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+
+			case s3.ErrCodeNoSuchBucket:
+				fmt.Println(aerr.Message())
+				logger.Fatal(aerr.Message())
+			default:
+				logger.Fatal(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			logger.Fatal(err.Error())
+		}
+		return svc, err
+	} //if
+
+	if autoRegion {
+		svc = s3.New(sess, &aws.Config{MaxRetries: aws.Int(30),
+			Region: result.LocationConstraint})
+	} else {
+		if svc.Config.Region != result.LocationConstraint {
+			fmt.Println("Bucket exist in region", *result.LocationConstraint, "which is different to region passed", *svc.Config.Region, ". Please adjust region on the command line our use --auto-region")
+			logger.Fatal("Bucket exist in region", *result.LocationConstraint, "which is different to region passed", *svc.Config.Region, ". Please adjust region on the command line our use --auto-region")
+		}
+	}
+
+	return svc, err
+}
+
+func delete(sess *session.Session, path string, autoRegion bool, versions bool, recursive bool) {
 	var logger = zap.S()
 
 	s3URL, err := url.Parse(path)
 
 	if err == nil && s3URL.Scheme == "s3" {
 
-		svc := s3.New(sess, &aws.Config{MaxRetries: aws.Int(30)})
+		var svc *s3.S3
+		svc, err = checkBucket(sess, s3URL.Host, autoRegion)
 
 		threads := 50
 		//make a channel for processing

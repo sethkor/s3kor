@@ -4,6 +4,8 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/aws/aws-sdk-go/aws"
+
 	"go.uber.org/zap"
 
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -12,14 +14,20 @@ import (
 
 ///Command line flags
 var (
-	app      = kingpin.New("s3kor", "s3 tools using golang concurency")
-	pProfile = app.Flag("profile", "AWS credentials/config file profile to use").Short('p').String()
-	pVerbose = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
+	app         = kingpin.New("s3kor", "s3 tools using golang concurency")
+	pProfile    = app.Flag("profile", "AWS credentials/config file profile to use").String()
+	pAutoRegion = app.Flag("auto-region", "Automatic region detection").Default("false").Bool()
+	pRegion     = app.Flag("region", "AWS region").String()
+	pVerbose    = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Default("false").Bool()
 	rmAllVersions = rm.Flag("all-versions", "Delete all versions").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
+
+	ls            = app.Command("ls", "list")
+	lsAllVersions = ls.Flag("all-versions", "Delete all versions").Default("false").Bool()
+	lsPath        = ls.Arg("S3Uri", "S3 URL").Required().String()
 )
 
 //version variable which can be overidden at compile time
@@ -61,9 +69,8 @@ func main() {
 
 	var sess *session.Session
 	if *pProfile != "" {
-		awskeyprofile := *pProfile
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
-			Profile:           awskeyprofile,
+			Profile:           *pProfile,
 			SharedConfigState: session.SharedConfigEnable,
 		}))
 
@@ -73,10 +80,15 @@ func main() {
 		}))
 
 	} //else
-
+	if *pRegion != "" {
+		sess.Config.Region = aws.String(*pRegion)
+	}
 	switch command {
 	case rm.FullCommand():
-		delete(sess, *rmPath, *rmRecursive, *rmAllVersions)
+		delete(sess, *rmPath, *pAutoRegion, *rmAllVersions, *rmRecursive)
+	case ls.FullCommand():
+		list(sess, *lsPath, *lsAllVersions)
+
 	}
 	//	}
 
