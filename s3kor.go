@@ -83,103 +83,15 @@ func main() {
 	if *pRegion != "" {
 		sess.Config.Region = aws.String(*pRegion)
 	}
+
+
 	switch command {
 	case rm.FullCommand():
 		delete(sess, *rmPath, *pAutoRegion, *rmAllVersions, *rmRecursive)
 	case ls.FullCommand():
-		list(sess, *lsPath, *lsAllVersions)
+		list(sess, *lsPath, *pAutoRegion, *lsAllVersions)
 
 	}
-	//	}
 
-	//if *pVersion {
-	//	fmt.Println(version)
-	//
-	//} else {
-	//	//Set up logging
-	//	//var masterLogger *zap.Logger
-	//
-	//	var err error
-	//	//if *pDebug {
-	//	//	masterLogger, err = zap.NewDevelopment()
-	//	//} else {
-	//	//	masterLogger, err = zap.NewProduction()
-	//	//
-	//	//}
-	//	if err == nil {
-	//		//zap.ReplaceGlobals(masterLogger)
-	//		//logger := zap.S()
-	//		//defer logger.Sync()
-	//		logger.Info("Starting s3thsync")
-	//
-	//		//Get your AWS credentials set
-	//		var sess *session.Session
-	//		if *pProfile != "" {
-	//			logger.Debug("using passed profile")
-	//			awskeyprofile := *pProfile
-	//			sess = session.Must(session.NewSessionWithOptions(session.Options{
-	//				Profile:           awskeyprofile,
-	//				SharedConfigState: session.SharedConfigEnable,
-	//			}))
-	//
-	//		} else {
-	//			logger.Debug("using default provider chain")
-	//			sess = session.Must(session.NewSessionWithOptions(session.Options{
-	//				SharedConfigState: session.SharedConfigEnable,
-	//			}))
-	//
-	//		} //else
-	//
-	//		//Workout what we have been asked to do
-	//		if *pRemove != "" {
-	//
-	//			logger.Debug("Delete contents of bucket")
-	//			delete(sess, rmPath, rmVersions)
-	//
-	//		}
-	//		//else {
-	//		//
-	//		//	targetBucket := *pTarget
-	//		//	targetBucket = targetBucket[5:len(targetBucket)]
-	//		//
-	//		//	manifestBucket := *pManifest
-	//		//	if manifestBucket != "" {
-	//		//		manifestBucket = manifestBucket[5:len(manifestBucket)]
-	//		//	} //if
-	//		//
-	//		//	//Check to see if s3:// is used for source
-	//		//	if strings.HasPrefix(*pSource, "s3://") {
-	//		//
-	//		//		logger.Debug("Copy from S3 to S3")
-	//		//		sourceBucket := *pSource
-	//		//		sourceBucket = sourceBucket[5:len(sourceBucket)]
-	//		//		s3Copy(sess, sourceBucket, targetBucket)
-	//		//
-	//		//	} else {
-	//		//		//File based source
-	//		//
-	//		//		info, err := os.Lstat(*pSource)
-	//		//		if err != nil {
-	//		//			logger.Fatal(err)
-	//		//		} //if
-	//		//		if !info.IsDir() {
-	//		//			logger.Fatal(cwalk.ErrNotDir)
-	//		//		} //if
-	//		//
-	//		//		if *pSync {
-	//		//			logger.Debug("Sync file dir to S3")
-	//		//			fileSync(*pSource, targetBucket, manifestBucket, sess, *pConcurent)
-	//		//		} else {
-	//		//			logger.Debug("Copy file dir to S3")
-	//		//			fileCopy(*pSource, targetBucket, manifestBucket, *pConcurent, sess)
-	//		//		} //else
-	//		//	} //else
-	//		//} //else
-	//		endTime := time.Now()
-	//		logger.Infof("Total run time: %s", endTime.Sub(startTime))
-	//		fmt.Println("Total run time: ", endTime.Sub(startTime))
-	//	} else {
-	//		log.Fatal("Could not initiate logger, exiting")
-	//	} //else
-	//} //else
+
 }
