@@ -171,7 +171,7 @@ func listObjects(s3URL url.URL, resultsChan chan<- []*s3.ObjectIdentifier, bar *
 func printAllObjects(deleteBucket string, resultsChan <-chan []*s3.ObjectIdentifier, bar *pb.ProgressBar, svc s3.S3) {
 	for item := range resultsChan {
 		for _, object := range item {
-			fmt.Println(object.GoString())
+			fmt.Println(*object.Key)
 		}
 
 	}
@@ -191,8 +191,10 @@ func list(sess *session.Session, path string, autoRegion bool, versions bool) {
 		//make a channel for processing
 		resultsChan := make(chan []*s3.ObjectIdentifier, threads)
 
-		bar := pb.StartNew(0)
+		bar := pb.New(0)
+		//bar := pb.StartNew(0)
 		bar.ShowBar = false
+		bar.NotPrint = true
 		if versions {
 			go listObjectVersions(*s3URL, resultsChan, false, bar, *svc)
 		} else {
@@ -205,7 +207,9 @@ func list(sess *session.Session, path string, autoRegion bool, versions bool) {
 		if bar.Total == 0 {
 			bar.FinishPrint("No objects found and removed")
 		}
-		bar.Finish()
+		//bar.Finish()
+
+		fmt.Printf("%d items found\n", bar.Total)
 
 	} else {
 		fmt.Println("S3 URL passed not formatted correctly")
