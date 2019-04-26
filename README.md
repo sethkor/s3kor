@@ -69,7 +69,7 @@ All commands can take the `--auto-region` flag to automatically detect the right
 Nothing special here.  Just remember S3 has prefixes, not directory paths.
 
 ## Remove - rm
-```cassandraql
+```
   --recursive        Recurisvley delete
   --all-versions     Delete all versions
 ```
