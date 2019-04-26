@@ -9,13 +9,32 @@ before:
 builds:
 - env:
   - CGO_ENABLED=0
-archive:
-  replacements:
-    darwin: Darwin
-    linux: Linux
-    windows: Windows
-    386: i386
-    amd64: x86_64
+  goos:
+    - darwin
+    - linux
+    - windows
+  goarch:
+    - amd64
+    - 386
+    - arm64
+    - arm
+  goarm:
+    - 6
+    - 7
+  ignore:
+    - goos: darwin
+      goarch: 386
+    - goos: darwin
+      goarch: arm64
+
+archives:
+  -
+    replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: i386
+      amd64: x86_64
 checksum:
   name_template: 'checksums.txt'
 snapshot:

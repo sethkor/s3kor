@@ -72,7 +72,7 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 			resultsChan := make(chan []*s3.ObjectIdentifier, threads)
 
 			bar := pb.StartNew(0)
-			bar.ShowBar = false
+			bar.ShowBar = true
 			if versions {
 				go listObjectVersions(*s3URL, resultsChan, false, bar, *svc)
 			} else {
@@ -88,6 +88,13 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 			bar.Finish()
 		} else {
 			//we are only deleting a single object
+			//ensure we have more than just the host in the url
+
+			if s3URL.Path == "" {
+				fmt.Println("Must pass an object in the bucket to remove, not just the bucket name")
+				logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name")
+			}
+
 
 			if versions{
 				//we want to delete all versions of the object specified
@@ -97,7 +104,7 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 				resultsChan := make(chan []*s3.ObjectIdentifier, threads)
 
 				bar := pb.StartNew(0)
-				bar.ShowBar = false
+				bar.ShowBar = true
 
 				go listObjectVersions(*s3URL, resultsChan, true, bar, *svc)
 

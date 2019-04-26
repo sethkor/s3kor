@@ -19,6 +19,11 @@ func checkBucket(sess *session.Session, bucket string, autoRegion bool) (svc *s3
 		Bucket: aws.String(bucket),
 	})
 
+	bucketLocation := "us-east-1"
+	if result.LocationConstraint != nil {
+		bucketLocation = *result.LocationConstraint
+
+	}
 	if err != nil {
 
 		if aerr, ok := err.(awserr.Error); ok {
@@ -40,11 +45,11 @@ func checkBucket(sess *session.Session, bucket string, autoRegion bool) (svc *s3
 
 	if autoRegion {
 		svc = s3.New(sess, &aws.Config{MaxRetries: aws.Int(30),
-			Region: result.LocationConstraint})
+			Region: aws.String(bucketLocation)})
 	} else {
-		if svc.Config.Region != result.LocationConstraint {
-			fmt.Println("Bucket exist in region", *result.LocationConstraint, "which is different to region passed", *svc.Config.Region, ". Please adjust region on the command line our use --auto-region")
-			logger.Fatal("Bucket exist in region", *result.LocationConstraint, "which is different to region passed", *svc.Config.Region, ". Please adjust region on the command line our use --auto-region")
+		if *svc.Config.Region != bucketLocation {
+			fmt.Println("Bucket exist in region", bucketLocation, "which is different to region passed", *svc.Config.Region, ". Please adjust region on the command line our use --auto-region")
+			logger.Fatal("Bucket exist in region", bucketLocation, "which is different to region passed", *svc.Config.Region, ". Please adjust region on the command line our use --auto-region")
 		}
 	}
 
