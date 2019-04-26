@@ -34,6 +34,9 @@ archives:
       darwin: Darwin
       linux: Linux
       windows: Windows
+    format_overrides:
+      - goos: windows
+        format: zip
 
 checksum:
   name_template: 'checksums.txt'
