@@ -80,10 +80,10 @@ Remember when using `--all-versions` to delete all versions of an object at once
 
 When deleting a large number of objects, the final outcome may not be reflected by `ls` immediately due to eventual consistency.
 
-##Copy - cp
+## Copy - cp
 This is WIP
 
-##Sync - cp
+## Sync - cp
 This is WIP
 
 
