@@ -61,14 +61,14 @@ Commands:
 
 --profile will always look in the usual place for your aws `credentials` or `config` file
 
-###Automatic region detection for your buckets
+### Automatic region detection for your buckets
 All commands can take the `--auto-region` flag to automatically detect the right region for your bucket operation, rather than you passing the specific region with `--region`.
 
 
-##List - ls
+## List - ls
 Nothing special here.  Just remember S3 has prefixes, not directory paths.
 
-##Remove - rm
+## Remove - rm
 ```cassandraql
   --recursive        Recurisvley delete
   --all-versions     Delete all versions
