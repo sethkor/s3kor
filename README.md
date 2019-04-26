@@ -27,10 +27,11 @@ go get github.com/sethkor/s3kor
 
 
 The cli emulates the [aws cli](https://aws.amazon.com/cli/) as close as possible so as to be a drop in replacement.  Supported s3 operations:
--[X] List - ls
--[X] Remove - rm
--[ ] Copy - cp
--[ ] Syncronize - sync
+
+- [X] List - ls
+- [X] Remove - rm
+- [ ] Copy - cp
+- [ ] Syncronize - sync
 
 Use `--help` on the command line to help you along the way.
 
@@ -68,7 +69,7 @@ All commands can take the `--auto-region` flag to automatically detect the right
 ## List - ls
 Nothing special here.  Just remember S3 has prefixes, not directory paths.
 
-## Remove - rm
+## Remove - rmgit 
 ```
   --recursive        Recurisvley delete
   --all-versions     Delete all versions
