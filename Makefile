@@ -9,4 +9,7 @@ clean:
 	rm s3kor.linux s3kor.linux.gz
 
 publish-test:
-	goreleaser --snapshot --skip-publish --rm-dist
+	goreleaser --snapshot --rm-dist
+
+publish:
+	goreleaser --rm-dist --skip-validate
