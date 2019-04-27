@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 
@@ -28,6 +29,11 @@ var (
 	ls            = app.Command("ls", "list")
 	lsAllVersions = ls.Flag("all-versions", "Delete all versions").Default("false").Bool()
 	lsPath        = ls.Arg("S3Uri", "S3 URL").Required().String()
+
+	cp            = app.Command("cp", "copy")
+	cpSource      = cp.Arg("source", "file or s3 location").Required().String()
+	cpDestination = cp.Arg("destination", "file or s3 location").Required().String()
+	cpRecursive   = cp.Flag("recursive", "Recurisvley copy").Short('r').Default("False").Bool()
 )
 
 //version variable which can be overidden at compile time
@@ -90,7 +96,15 @@ func main() {
 		delete(sess, *rmPath, *pAutoRegion, *rmAllVersions, *rmRecursive)
 	case ls.FullCommand():
 		list(sess, *lsPath, *pAutoRegion, *lsAllVersions)
+	case cp.FullCommand():
+		//if len(*cpPath) != 2 {
+		//	fmt.Println("Need at least 2 Args")
+		//} else {
+		//	fmt.Println("Got 2 Args")
+		//}
 
+		fmt.Println(*cpSource, " ", *cpDestination)
+		copy(sess)
 	}
 
 
