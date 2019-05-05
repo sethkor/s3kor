@@ -56,7 +56,7 @@ func deleteAllObjects(deleteBucket string, resultsChan <-chan []*s3.ObjectIdenti
 
 }
 
-func delete(sess *session.Session, path string, autoRegion bool, versions bool, recursive bool) {
+func delete(sess *session.Session, path string, versions bool, recursive bool) {
 	var logger = zap.S()
 
 	s3URL, err := url.Parse(path)
@@ -64,7 +64,7 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 	if err == nil && s3URL.Scheme == "s3" {
 
 		var svc *s3.S3
-		svc, err = checkBucket(sess, s3URL.Host, autoRegion)
+		svc, err = checkBucket(sess, s3URL.Host)
 
 		if recursive {
 			threads := 50
@@ -95,8 +95,7 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 				logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name")
 			}
 
-
-			if versions{
+			if versions {
 				//we want to delete all versions of the object specified
 
 				//make a channel for processing
@@ -108,11 +107,10 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 
 				go listObjectVersions(*s3URL, resultsChan, true, bar, *svc)
 
-
 			} else {
-				_, err = svc.DeleteObject( &s3.DeleteObjectInput{
+				_, err = svc.DeleteObject(&s3.DeleteObjectInput{
 					Bucket: aws.String(s3URL.Host),
-					Key: aws.String(s3URL.Path[1:]),
+					Key:    aws.String(s3URL.Path[1:]),
 				})
 
 				if err != nil {
@@ -132,12 +130,8 @@ func delete(sess *session.Session, path string, autoRegion bool, versions bool, 
 			}
 		}
 
-
-
 	} else {
 		fmt.Println("S3 URL passed not formatted correctly")
 		logger.Fatal("S3 URL passed not formatted correctly")
 	}
 }
-
-

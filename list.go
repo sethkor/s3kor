@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"net/url"
 	"sync"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -46,7 +47,7 @@ func processListObjectsVersionsOutput(resultsChan chan<- []*s3.ObjectIdentifier,
 
 		for _, item := range deleters {
 			if *item.Key == exactMatchKey {
-				objectList= append(objectList, &s3.ObjectIdentifier{Key: item.Key, VersionId: item.VersionId})
+				objectList = append(objectList, &s3.ObjectIdentifier{Key: item.Key, VersionId: item.VersionId})
 			}
 		}
 
@@ -177,7 +178,7 @@ func printAllObjects(deleteBucket string, resultsChan <-chan []*s3.ObjectIdentif
 	}
 }
 
-func list(sess *session.Session, path string, autoRegion bool, versions bool) {
+func list(sess *session.Session, path string, versions bool) {
 	var logger = zap.S()
 
 	s3URL, err := url.Parse(path)
@@ -185,7 +186,7 @@ func list(sess *session.Session, path string, autoRegion bool, versions bool) {
 	if err == nil && s3URL.Scheme == "s3" {
 
 		var svc *s3.S3
-		svc, err = checkBucket(sess, s3URL.Host, autoRegion)
+		svc, err = checkBucket(sess, s3URL.Host)
 
 		threads := 50
 		//make a channel for processing
