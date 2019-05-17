@@ -30,7 +30,7 @@ The cli emulates the [aws cli](https://aws.amazon.com/cli/) as close as possible
 
 - [X] List - ls
 - [X] Remove - rm
-- [ ] Copy - cp
+- [X] Copy - cp
 - [ ] Syncronize - sync
 
 Use `--help` on the command line to help you along the way.
@@ -58,6 +58,8 @@ Commands:
   ls [<flags>] <S3Uri>
     list
 
+  cp [<flags>] <source> <destination>
+    copy
 ```
 
 --profile will always look in the usual place for your aws `credentials` or `config` file
@@ -69,7 +71,7 @@ All commands can take the `--auto-region` flag to automatically detect the right
 ## List - ls
 Nothing special here.  Just remember S3 has prefixes, not directory paths.
 
-## Remove - rmgit 
+## Remove - rm
 ```
   --recursive        Recurisvley delete
   --all-versions     Delete all versions
@@ -82,9 +84,33 @@ Remember when using `--all-versions` to delete all versions of an object at once
 When deleting a large number of objects, the final outcome may not be reflected by `ls` immediately due to eventual consistency.
 
 ## Copy - cp
-This is WIP
+This is WIP, some further features to come.  Please raise an issue if theres a specific feature you. would like considered or prioritised.
 
-## Sync - cp
+```
+  -r, --recursive               Recursively copy
+  -c, --concurrent=10           Maximum number of concurrent uploads to S3.
+      --sse=AES256              Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.
+      --sse-kms-key-id=SSE-KMS-KEY-ID  
+                                The AWS KMS key ID that should be used to server-side encrypt the object in S3.
+      --acl=private             Object ACL
+      --storage-class=STANDARD  Storage Class
+
+Args:
+  <source>       file or s3 location
+  <destination>  file or s3 location
+```
+
+Tha maximum. concurrent uploads (`--concurrent` or `-c`) is dependent not only on your upload bandwidth but also the maximum open file limits per process on your system and the performance of the soucre drive.  
+
+You can check your file limits in linux, macos and other flavour of OS with `ulimit -n`.  Changing this limit in the os is possible and not always dangerous.  Instructions on how to change it vary between OS so they are not described here.  `s3kor` impacts these limits both in walking the file system and uploading the file so there is not a 1 to 1 correlation between the max limit ond the value you pass to `--concurrent`.  Try to pass `s3kor` a max value that is about 20% less than the systems max limit value.
+
+Currently if you hit a file limit, the error is not reported
+
+For optimal throughput consider using a S3 VPC Gateway endpoint if you are executing s3kor from within an AWS VPC.
+
+And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
+  
+## Sync - sync
 This is WIP
 
 

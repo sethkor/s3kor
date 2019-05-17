@@ -152,7 +152,7 @@ func ACL(acl string) func(copier *BucketCopier) {
 	}
 }
 
-func NewBucketCopier(source string, dest string, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
+func NewBucketCopier(source string, dest string, threads int, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
 
 	var svc *s3.S3 = nil
 	sourceURL, err := url.Parse(source)
@@ -192,9 +192,9 @@ func NewBucketCopier(source string, dest string, sess *session.Session, template
 		source:        *sourceURL,
 		target:        *destURL,
 		uploadManager: *s3manager.NewUploaderWithClient(svc),
-		threads:       make(semaphore, 1000),
-		files:         make(chan fileJob, 1000),
-		fileCounter:   make(chan int64, 1000),
+		threads:       make(semaphore, threads),
+		files:         make(chan fileJob, 10000),
+		fileCounter:   make(chan int64, 10000),
 		wg:            &sync.WaitGroup{},
 		template:      template,
 	}
