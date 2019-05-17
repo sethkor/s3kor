@@ -26,7 +26,7 @@ var (
 	pVerbose    = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
-	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Default("false").Bool()
+	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
 	rmAllVersions = rm.Flag("all-versions", "Delete all versions").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
 
