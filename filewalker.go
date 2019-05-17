@@ -26,11 +26,12 @@ func upLoadFile(files chan<- fileJob, fileSize chan<- int64) filepath.WalkFunc {
 
 		//We are only interested in regular files
 		if info.Mode().IsRegular() {
+         fileSize <- info.Size()
 			files <- fileJob{
 				path: path,
 				info: info,
 			}
-			fileSize <- info.Size()
+
 		}
 		return nil
 	}
