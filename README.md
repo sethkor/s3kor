@@ -43,7 +43,6 @@ s3 tools using golang concurency
 Flags:
   --help             Show context-sensitive help (also try --help-long and --help-man).
   --profile=PROFILE  AWS credentials/config file profile to use
-  --auto-region      Automatic region detection
   --region=REGION    AWS region
   --verbose          Verbose Logging
   --version          Show application version.
@@ -88,7 +87,7 @@ This is WIP, some further features to come.  Please raise an issue if theres a s
 
 ```
   -r, --recursive               Recursively copy
-  -c, --concurrent=10           Maximum number of concurrent uploads to S3.
+  -c, --concurrent=50           Maximum number of concurrent uploads to S3.
       --sse=AES256              Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.
       --sse-kms-key-id=SSE-KMS-KEY-ID  
                                 The AWS KMS key ID that should be used to server-side encrypt the object in S3.
