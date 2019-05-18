@@ -1,5 +1,5 @@
 # s3kor
-S3 tools built in GoLang using threads for fast parallel actions like copy, list and remove to S3.
+S3 tools built in GoLang using threads for fast parallel actions like copy, list and remove to S3.  It's intended as a drop in replacement for the `aws cli s3` set of commands so all flags and args should be the same with the exception of a few new ones.
 
 Easiest way to install if you're on a Mac or Linux (amd64 or arm64)  is to use [Homebrew](https://brew.sh/)
 
@@ -104,7 +104,7 @@ Tha maximum. concurrent uploads (`--concurrent` or `-c`) is dependent not only o
 
 You can check your file limits in linux, macos and other flavour of OS with `ulimit -n`.  Changing this limit in the os is possible and not always dangerous.  Instructions on how to change it vary between OS so they are not described here.  `s3kor` impacts these limits both in walking the file system and uploading the file so there is not a 1 to 1 correlation between the max limit ond the value you pass to `--concurrent`.  Try to pass `s3kor` a max value that is about 20% less than the systems max limit value.
 
-Currently if you hit a file limit, the error is not reported
+Currently if you hit a file limit, the error is not reported.
 
 For optimal throughput consider using a S3 VPC Gateway endpoint if you are executing s3kor from within an AWS VPC.
 

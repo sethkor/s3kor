@@ -1,32 +1,48 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
+
+	"github.com/vbauerster/mpb/decor"
+
+	"github.com/vbauerster/mpb"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"go.uber.org/zap"
-	"gopkg.in/cheggaaa/pb.v1"
 )
 
-func deleteObjects(deleteBucket string, bar *pb.ProgressBar, wg *sync.WaitGroup, svc s3.S3) func(item []*s3.ObjectIdentifier) {
+type BucketDeleter struct {
+	source      url.URL
+	recursive   bool
+	versions    bool
+	resultsChan chan []*s3.ObjectIdentifier
+	count       *mpb.Bar
+	wg          sync.WaitGroup
+	svc         *s3.S3
+	lister      *BucketLister
+}
+
+func (deleter *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) {
 	var logger = zap.S()
 	return func(item []*s3.ObjectIdentifier) {
-		defer wg.Done()
+		defer deleter.wg.Done()
 
 		deleteInput := s3.DeleteObjectsInput{
-			Bucket: aws.String(deleteBucket),
+			Bucket: aws.String(deleter.source.Host),
 			Delete: &s3.Delete{
 				Objects: item,
 				Quiet:   aws.Bool(true)},
 		}
 
-		_, err := svc.DeleteObjects(&deleteInput)
-		bar.Add(len(deleteInput.Delete.Objects))
+		_, err := deleter.svc.DeleteObjects(&deleteInput)
+
+		deleter.count.IncrBy(len(item))
 		if err != nil {
 			if aerr, ok := err.(awserr.RequestFailure); ok {
 				switch aerr.StatusCode() {
@@ -45,93 +61,125 @@ func deleteObjects(deleteBucket string, bar *pb.ProgressBar, wg *sync.WaitGroup,
 	}
 }
 
-func deleteAllObjects(deleteBucket string, resultsChan <-chan []*s3.ObjectIdentifier, bar *pb.ProgressBar, svc s3.S3) {
-	var wg sync.WaitGroup
-	deleteObjectsFunc := deleteObjects(deleteBucket, bar, &wg, svc)
-	for item := range resultsChan {
-		wg.Add(1)
+func (deleter *BucketDeleter) deleteAllObjects() {
+	deleteObjectsFunc := deleter.deleteObjects()
+
+	var totalObjects int64 = 0
+	for item := range deleter.resultsChan {
+		deleter.wg.Add(1)
 		go deleteObjectsFunc(item)
+		totalObjects = totalObjects + int64(len(item))
+		deleter.count.SetTotal(totalObjects, false)
 	}
-	wg.Wait()
+	deleter.count.SetTotal(totalObjects, true)
+	deleter.wg.Wait()
 
 }
 
-func delete(sess *session.Session, path string, versions bool, recursive bool) {
+func (deleter *BucketDeleter) delete() {
 	var logger = zap.S()
 
-	s3URL, err := url.Parse(path)
+	if deleter.recursive {
 
-	if err == nil && s3URL.Scheme == "s3" {
+		progress := mpb.New()
 
-		var svc *s3.S3
-		svc, err = checkBucket(sess, s3URL.Host)
+		deleter.count = progress.AddBar(0,
+			mpb.PrependDecorators(
+				// simple name decorator
+				decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
+				decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+			),
+		)
 
-		if recursive {
-			threads := 50
-			//make a channel for processing
-			resultsChan := make(chan []*s3.ObjectIdentifier, threads)
-
-			bar := pb.StartNew(0)
-			bar.ShowBar = true
-			if versions {
-				go listObjectVersions(*s3URL, resultsChan, false, bar, *svc)
-			} else {
-
-				go listObjects(*s3URL, resultsChan, bar, *svc)
-			}
-
-			deleteAllObjects(s3URL.Host, resultsChan, bar, *svc)
-
-			if bar.Total == 0 {
-				bar.FinishPrint("No objects found and removed")
-			}
-			bar.Finish()
+		if deleter.versions {
+			go deleter.lister.listObjectVersions(false)
 		} else {
-			//we are only deleting a single object
-			//ensure we have more than just the host in the url
 
-			if s3URL.Path == "" {
-				fmt.Println("Must pass an object in the bucket to remove, not just the bucket name")
-				logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name")
-			}
-
-			if versions {
-				//we want to delete all versions of the object specified
-
-				//make a channel for processing
-				threads := 50
-				resultsChan := make(chan []*s3.ObjectIdentifier, threads)
-
-				bar := pb.StartNew(0)
-				bar.ShowBar = true
-
-				go listObjectVersions(*s3URL, resultsChan, true, bar, *svc)
-
-			} else {
-				_, err = svc.DeleteObject(&s3.DeleteObjectInput{
-					Bucket: aws.String(s3URL.Host),
-					Key:    aws.String(s3URL.Path[1:]),
-				})
-
-				if err != nil {
-					if aerr, ok := err.(awserr.RequestFailure); ok {
-						switch aerr.StatusCode() {
-
-						default:
-							logger.Error(aerr.Error())
-						} //default
-					} else {
-						// Print the error, cast err to awserr.Error to get the Code and
-						// Message from an error.
-						logger.Error(err.Error())
-					} //else
-					return
-				} //if
-			}
+			go deleter.lister.listObjects()
 		}
 
+		deleter.deleteAllObjects()
+
 	} else {
-		fmt.Println("S3 URL passed not formatted correctly")
-		logger.Fatal("S3 URL passed not formatted correctly")
+		//we are only deleting a single object
+		//ensure we have more than just the host in the url
+
+		if deleter.source.Path == "" {
+			fmt.Println("Must pass an object in the bucket to remove, not just the bucket name")
+			logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name")
+		}
+
+		if deleter.versions {
+			//we want to delete all versions of the object specified
+
+			progress := mpb.New()
+
+			deleter.count = progress.AddBar(0,
+				mpb.PrependDecorators(
+					// simple name decorator
+					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
+					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+				),
+			)
+
+			go deleter.lister.listObjectVersions(true)
+
+		} else {
+			_, err := deleter.svc.DeleteObject(&s3.DeleteObjectInput{
+				Bucket: aws.String(deleter.source.Host),
+				Key:    aws.String(deleter.source.Path[1:]),
+			})
+
+			if err != nil {
+				if aerr, ok := err.(awserr.RequestFailure); ok {
+					switch aerr.StatusCode() {
+
+					default:
+						logger.Error(aerr.Error())
+					} //default
+				} else {
+					// Print the error, cast err to awserr.Error to get the Code and
+					// Message from an error.
+					logger.Error(err.Error())
+				} //else
+				return
+			} //if
+		}
 	}
+
+}
+
+func NewBucketDeleter(source string, threads int, versions bool, recursive bool, sess *session.Session) (*BucketDeleter, error) {
+
+	sourceURL, err := url.Parse(source)
+	if err != nil {
+		return nil, err
+	}
+
+	if sourceURL.Scheme != "s3" {
+		return nil, errors.New("usage: aws s3 ls <S3Uri> ")
+
+	}
+
+	bd := &BucketDeleter{
+		source:      *sourceURL,
+		wg:          sync.WaitGroup{},
+		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
+		versions:    versions,
+		recursive:   recursive,
+	}
+
+	bd.lister, err = NewBucketLister(source, threads, sess)
+	bd.lister.resultsChan = bd.resultsChan
+
+	if err != nil {
+		return nil, err
+	}
+
+	bd.svc, err = checkBucket(sess, sourceURL.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	return bd, nil
 }

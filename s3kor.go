@@ -19,11 +19,10 @@ import (
 
 ///Command line flags
 var (
-	app         = kingpin.New("s3kor", "s3 tools using golang concurency")
-	pProfile    = app.Flag("profile", "AWS credentials/config file profile to use").String()
-	pAutoRegion = app.Flag("auto-region", "Automatic region detection").Default("false").Bool()
-	pRegion     = app.Flag("region", "AWS region").String()
-	pVerbose    = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
+	app      = kingpin.New("s3kor", "s3 tools using golang concurency")
+	pProfile = app.Flag("profile", "AWS credentials/config file profile to use").String()
+	pRegion  = app.Flag("region", "AWS region").String()
+	pVerbose = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
@@ -38,7 +37,7 @@ var (
 	cpSource      = cp.Arg("source", "file or s3 location").Required().String()
 	cpDestination = cp.Arg("destination", "file or s3 location").Required().String()
 	cpRecursive   = cp.Flag("recursive", "Recursively copy").Short('r').Default("False").Bool()
-	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("10").Int()
+	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("50").Int()
 	cpSSE         = cp.Flag("sse", "Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.").Default("AES256").Enum("AES256", "aws:kms")
 	cpSSEKMSKeyId = cp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
 	cpACL         = cp.Flag("acl", "Object ACL").Default(s3.ObjectCannedACLPrivate).Enum(s3.ObjectCannedACLAuthenticatedRead,
@@ -113,9 +112,21 @@ func main() {
 
 	switch command {
 	case rm.FullCommand():
-		delete(sess, *rmPath, *rmAllVersions, *rmRecursive)
+		deleter, err := NewBucketDeleter(*rmPath, 50, *rmAllVersions, *rmRecursive, sess)
+		if err != nil {
+			fmt.Println(err.Error())
+			logger.Fatal(err.Error())
+		} else {
+			deleter.delete()
+		}
 	case ls.FullCommand():
-		list(sess, *lsPath, *lsAllVersions)
+		lister, err := NewBucketLister(*lsPath, 50, sess)
+		if err != nil {
+			fmt.Println(err.Error())
+			logger.Fatal(err.Error())
+		} else {
+			lister.list(*lsAllVersions)
+		}
 	case cp.FullCommand():
 
 		inputTemplate := s3manager.UploadInput{
@@ -133,7 +144,7 @@ func main() {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			myCopier.copy()
+			myCopier.copy(*cpRecursive)
 		}
 	}
 

@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/iafan/cwalk"
+	"github.com/sethkor/cwalk"
 	"go.uber.org/zap"
 )
 
@@ -26,7 +26,7 @@ func upLoadFile(files chan<- fileJob, fileSize chan<- int64) filepath.WalkFunc {
 
 		//We are only interested in regular files
 		if info.Mode().IsRegular() {
-         fileSize <- info.Size()
+			fileSize <- info.Size()
 			files <- fileJob{
 				path: path,
 				info: info,
@@ -48,5 +48,16 @@ func walkFiles(sourceDir string, files chan<- fileJob, filecount chan<- int64) {
 	}
 	close(filecount)
 	close(files)
-	logger.Debug("Finished file walk")
+	//if err != nil {
+	//
+	//	fmt.Printf("\n\n\n\nError : %s\n\n\n\n", err.Error())
+	//
+	//	for _, errors := range err.(cwalk.WalkerError).ErrorList {
+	//		fmt.Println(errors)
+	//	}
+	//
+	//} else {
+	//	fmt.Printf("\n\n\n\nError : No Error !!!\n\n\n\n")
+	//}
+	////logger.Debug("Finished file walk")
 }

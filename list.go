@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -11,14 +12,20 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"go.uber.org/zap"
-	"gopkg.in/cheggaaa/pb.v1"
 )
 
-func processListObjectsVersionsOutput(resultsChan chan<- []*s3.ObjectIdentifier, exactMatchKey string, wg *sync.WaitGroup) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
+type BucketLister struct {
+	source      url.URL
+	resultsChan chan []*s3.ObjectIdentifier
+	wg          sync.WaitGroup
+	svc         *s3.S3
+}
+
+func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
 
 	if exactMatchKey == "" {
 		return func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
-			defer wg.Done()
+			defer lister.wg.Done()
 			objectList := make([]*s3.ObjectIdentifier, len(versions)+len(deleters))
 			objectPos := 0
 
@@ -32,11 +39,11 @@ func processListObjectsVersionsOutput(resultsChan chan<- []*s3.ObjectIdentifier,
 				objectPos++
 			}
 
-			resultsChan <- objectList
+			lister.resultsChan <- objectList
 		}
 	}
 	return func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
-		defer wg.Done()
+		defer lister.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, 0, len(versions)+len(deleters))
 
 		for _, item := range versions {
@@ -51,15 +58,15 @@ func processListObjectsVersionsOutput(resultsChan chan<- []*s3.ObjectIdentifier,
 			}
 		}
 
-		resultsChan <- objectList
+		lister.resultsChan <- objectList
 	}
 
 }
 
-func processListObjectsOutput(resultsChan chan<- []*s3.ObjectIdentifier, wg *sync.WaitGroup) func(contents []*s3.Object) {
+func (lister *BucketLister) processListObjectsOutput() func(contents []*s3.Object) {
 
 	return func(contents []*s3.Object) {
-		defer wg.Done()
+		defer lister.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, len(contents))
 		objectPos := 0
 
@@ -67,37 +74,35 @@ func processListObjectsOutput(resultsChan chan<- []*s3.ObjectIdentifier, wg *syn
 			objectList[objectPos] = &s3.ObjectIdentifier{Key: item.Key}
 			objectPos++
 		}
-		resultsChan <- objectList
+		lister.resultsChan <- objectList
 	}
 }
 
-func listObjectVersions(s3URL url.URL, resultsChan chan<- []*s3.ObjectIdentifier, exactMatch bool, bar *pb.ProgressBar, svc s3.S3) {
-	defer close(resultsChan)
+func (lister *BucketLister) listObjectVersions(exactMatch bool) {
+	defer close(lister.resultsChan)
 	var logger = zap.S()
-	logger.Infof("Listing all object versions and delete markers in bucket: %s", s3URL.RawPath)
+	logger.Infof("Listing all object versions and delete markers in bucket: %s", lister.source.RawPath)
 	listVersionsInput := s3.ListObjectVersionsInput{
-		Bucket: aws.String(s3URL.Host),
+		Bucket: aws.String(lister.source.Host),
 	}
-	if len(s3URL.Path) > 0 {
-		listVersionsInput.Prefix = aws.String(s3URL.Path[1:])
+	if len(lister.source.Path) > 0 {
+		listVersionsInput.Prefix = aws.String(lister.source.Path[1:])
 	}
 
 	var wg sync.WaitGroup
 
-	numObjects := 0
-	bar.SetTotal(numObjects)
+	var numObjects int64 = 0
 
 	var exactMatchKey string
 	if exactMatch {
-		exactMatchKey = s3URL.Path[1:]
+		exactMatchKey = lister.source.Path[1:]
 	}
-	processListObjectsVersionsOutputFunc := processListObjectsVersionsOutput(resultsChan, exactMatchKey, &wg)
-	err := svc.ListObjectVersionsPages(&listVersionsInput, func(result *s3.ListObjectVersionsOutput, lastPage bool) bool {
+	processListObjectsVersionsOutputFunc := lister.processListObjectsVersionsOutput(exactMatchKey)
+	err := lister.svc.ListObjectVersionsPages(&listVersionsInput, func(result *s3.ListObjectVersionsOutput, lastPage bool) bool {
 
-		numObjects = numObjects + len(result.Versions) + len(result.DeleteMarkers)
+		numObjects = numObjects + int64(len(result.Versions)+len(result.DeleteMarkers))
 
 		if numObjects > 0 {
-			bar.SetTotal(numObjects)
 			wg.Add(1)
 			go processListObjectsVersionsOutputFunc(result.Versions, result.DeleteMarkers)
 		} //if
@@ -122,36 +127,32 @@ func listObjectVersions(s3URL url.URL, resultsChan chan<- []*s3.ObjectIdentifier
 
 }
 
-func listObjects(s3URL url.URL, resultsChan chan<- []*s3.ObjectIdentifier, bar *pb.ProgressBar, svc s3.S3) {
-	defer close(resultsChan)
+func (lister *BucketLister) listObjects() {
+	defer close(lister.resultsChan)
 	var logger = zap.S()
 
 	listInput := s3.ListObjectsV2Input{
-		Bucket: aws.String(s3URL.Host),
+		Bucket: aws.String(lister.source.Host),
 	}
 
-	if len(s3URL.Path) > 0 {
-		listInput.Prefix = aws.String(s3URL.Path[1:])
+	if len(lister.source.Path) > 0 {
+		listInput.Prefix = aws.String(lister.source.Path[1:])
 	}
 
-	var wg sync.WaitGroup
+	var numObjects int64 = 0
+	processListObjectsOutputFunc := lister.processListObjectsOutput()
 
-	numObjects := 0
-	bar.SetTotal(numObjects)
-	processListObjectsOutputFunc := processListObjectsOutput(resultsChan, &wg)
-
-	err := svc.ListObjectsV2Pages(&listInput, func(result *s3.ListObjectsV2Output, lastPage bool) bool {
-		numObjects = numObjects + len(result.Contents)
+	err := lister.svc.ListObjectsV2Pages(&listInput, func(result *s3.ListObjectsV2Output, lastPage bool) bool {
+		numObjects = numObjects + int64(len(result.Contents))
 
 		if numObjects > 0 {
-			bar.SetTotal(numObjects)
-			wg.Add(1)
+			lister.wg.Add(1)
 			go processListObjectsOutputFunc(result.Contents)
 		} //if
 		return true
 	})
 
-	wg.Wait()
+	lister.wg.Wait()
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -169,8 +170,8 @@ func listObjects(s3URL url.URL, resultsChan chan<- []*s3.ObjectIdentifier, bar *
 
 }
 
-func printAllObjects(deleteBucket string, resultsChan <-chan []*s3.ObjectIdentifier, bar *pb.ProgressBar, svc s3.S3) {
-	for item := range resultsChan {
+func (lister *BucketLister) printAllObjects() {
+	for item := range lister.resultsChan {
 		for _, object := range item {
 			fmt.Println(*object.Key)
 		}
@@ -178,42 +179,41 @@ func printAllObjects(deleteBucket string, resultsChan <-chan []*s3.ObjectIdentif
 	}
 }
 
-func list(sess *session.Session, path string, versions bool) {
-	var logger = zap.S()
+func (lister *BucketLister) list(versions bool) {
 
-	s3URL, err := url.Parse(path)
-
-	if err == nil && s3URL.Scheme == "s3" {
-
-		var svc *s3.S3
-		svc, err = checkBucket(sess, s3URL.Host)
-
-		threads := 50
-		//make a channel for processing
-		resultsChan := make(chan []*s3.ObjectIdentifier, threads)
-
-		bar := pb.New(0)
-		//bar := pb.StartNew(0)
-		bar.ShowBar = false
-		bar.NotPrint = true
-		if versions {
-			go listObjectVersions(*s3URL, resultsChan, false, bar, *svc)
-		} else {
-
-			go listObjects(*s3URL, resultsChan, bar, *svc)
-		}
-
-		printAllObjects(s3URL.Host, resultsChan, bar, *svc)
-
-		if bar.Total == 0 {
-			bar.FinishPrint("No objects found and removed")
-		}
-		//bar.Finish()
-
-		fmt.Printf("%d items found\n", bar.Total)
-
+	if versions {
+		go lister.listObjectVersions(false)
 	} else {
-		fmt.Println("S3 URL passed not formatted correctly")
-		logger.Fatal("S3 URL passed not formatted correctly")
+
+		go lister.listObjects()
 	}
+
+	lister.printAllObjects()
+
+}
+
+func NewBucketLister(source string, threads int, sess *session.Session) (*BucketLister, error) {
+
+	sourceURL, err := url.Parse(source)
+	if err != nil {
+		return nil, err
+	}
+
+	if sourceURL.Scheme != "s3" {
+		return nil, errors.New("usage: aws s3 ls <S3Uri> ")
+
+	}
+
+	bl := &BucketLister{
+		source:      *sourceURL,
+		wg:          sync.WaitGroup{},
+		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
+	}
+
+	bl.svc, err = checkBucket(sess, sourceURL.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	return bl, nil
 }
