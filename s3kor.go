@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
+	"runtime"
 
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
@@ -63,6 +65,12 @@ var (
 	date    = "unknown"
 )
 
+///Needed to workaround abug with zap logger and daft windows file paths/names
+func newWinFileSink(u *url.URL) (zap.Sink, error) {
+	// Remove leading slash left by url.Parse()
+	return os.OpenFile(u.Path[1:], os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+}
+
 func main() {
 	//Lets keep a track on how long things are taking us
 	//startTime := time.Now()
@@ -86,9 +94,19 @@ func main() {
 
 	}
 
-	config.OutputPaths = []string{
-		logFile.Name(),
+	//workaround for windows file paths and names
+
+	if runtime.GOOS == "windows" {
+		zap.RegisterSink("winfile", newWinFileSink)
+		config.OutputPaths = []string{
+			"winfile:///" + logFile.Name(),
+		}
+	} else {
+		config.OutputPaths = []string{
+			logFile.Name(),
+		}
 	}
+
 	logger, _ := config.Build()
 	zap.ReplaceGlobals(logger)
 	zap.RedirectStdLog(logger)
