@@ -89,8 +89,6 @@ func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 		listVersionsInput.Prefix = aws.String(lister.source.Path[1:])
 	}
 
-	var wg sync.WaitGroup
-
 	var numObjects int64 = 0
 
 	var exactMatchKey string
@@ -103,13 +101,13 @@ func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 		numObjects = numObjects + int64(len(result.Versions)+len(result.DeleteMarkers))
 
 		if numObjects > 0 {
-			wg.Add(1)
+			lister.wg.Add(1)
 			go processListObjectsVersionsOutputFunc(result.Versions, result.DeleteMarkers)
 		} //if
 		return true
 	})
 
-	wg.Wait()
+	lister.wg.Wait()
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
