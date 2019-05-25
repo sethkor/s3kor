@@ -1,5 +1,5 @@
 # s3kor
-S3 tools built in GoLang using threads for fast parallel actions like copy, list and remove to S3.  It's intended as a drop in replacement for the `aws cli s3` set of commands so all flags and args should be the same with the exception of a few new ones.
+AWS S3 tools built in GoLang using threads for fast parallel actions like copy, list and remove to AWS S3.  It's intended as a drop in replacement for the `aws cli s3` set of commands so all flags and args should be the same with the exception of a few new ones.
 
 Easiest way to install if you're on a Mac or Linux (amd64 or arm64)  is to use [Homebrew](https://brew.sh/)
 
@@ -76,14 +76,14 @@ Nothing special here.  Just remember S3 has prefixes, not directory paths.
   --all-versions     Delete all versions
 ```
 
-Both options can be used together in a single command.
+Both options can be used together in a single command which is not possible with the AWS cli
 
 Remember when using `--all-versions` to delete all versions of an object at once, the eventual consistency model of S3 applies.
 
 When deleting a large number of objects, the final outcome may not be reflected by `ls` immediately due to eventual consistency.
 
 ## Copy - cp
-This is WIP, some further features to come.  Please raise an issue if theres a specific feature you. would like considered or prioritised.
+This is WIP, some further features to come.  Only copy to S3 is currently supported. Please raise an issue if theres a specific feature you. would like considered or prioritised.
 
 ```
   -r, --recursive               Recursively copy
