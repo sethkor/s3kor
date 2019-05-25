@@ -140,7 +140,24 @@ func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 func (copier *BucketCopier) copy(recursive bool) {
 	//var logger = zap.S()
 
+	//need to check we have been passed a directory
+
+	path, err := filepath.Abs(copier.source.Path)
+	if err != nil {
+		fmt.Printf("The user-provided path %s does not exsit\n", copier.source.Path)
+		return
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		fmt.Printf("The user-provided path %s does not exsit\n", copier.source.Path)
+		return
+	}
+
 	if recursive {
+		if !info.IsDir() {
+			fmt.Printf("The user-provided path %s/ does not exsit\n", copier.source.Path)
+			return
+		}
 		if copier.source.Scheme != "s3" {
 
 			go walkFiles(copier.source.Path, copier.files, copier.fileCounter)
@@ -181,17 +198,10 @@ func (copier *BucketCopier) copy(recursive bool) {
 		copier.wg.Wait()
 
 		progress.Wait()
-	} else {
+	} else if !info.IsDir() {
 		//single file copy
-		info, err := os.Lstat(copier.source.Path)
+		copier.copyFile(copier.source.Path)
 
-		if err != nil {
-			if info.IsDir() {
-				fmt.Println("Can not coppy a directory without --recursive specified on command line")
-			} else {
-				copier.copyFile(copier.source.Path)
-			}
-		}
 	}
 
 }
