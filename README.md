@@ -1,5 +1,5 @@
 # s3kor
-AWS S3 tools built in GoLang using threads for fast parallel actions like copy, list and remove to AWS S3.  It's intended as a drop in replacement for the [aws cli s3](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html) set of commands so all flags, values and args should be the same with the exception of a few new ones.
+AWS S3 tools built in [Go](https://golang.org/) using multiple threads for fast parallel actions like copy, list and remove to AWS S3.  It's intended as a drop in replacement for the [aws cli s3](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html) set of commands so all flags, values and args should be the same with the exception of a few new ones.
 
 Easiest way to install if you're on a Mac or Linux (amd64 or arm64)  is to use [Homebrew](https://brew.sh/)
 
