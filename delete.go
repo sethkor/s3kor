@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
-
-	"github.com/vbauerster/mpb/decor"
-
-	"github.com/vbauerster/mpb"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -19,10 +16,11 @@ import (
 
 type BucketDeleter struct {
 	source      url.URL
+	quiet       bool
 	recursive   bool
 	versions    bool
+	total       int64
 	resultsChan chan []*s3.ObjectIdentifier
-	count       *mpb.Bar
 	wg          sync.WaitGroup
 	svc         *s3.S3
 	lister      *BucketLister
@@ -42,7 +40,11 @@ func (deleter *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) 
 
 		_, err := deleter.svc.DeleteObjects(&deleteInput)
 
-		deleter.count.IncrBy(len(item))
+		atomic.AddInt64(&deleter.total, int64((len(item))))
+		if !deleter.quiet {
+			fmt.Printf("\r%d", deleter.total)
+		}
+
 		if err != nil {
 			if aerr, ok := err.(awserr.RequestFailure); ok {
 				switch aerr.StatusCode() {
@@ -63,33 +65,23 @@ func (deleter *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) 
 
 func (deleter *BucketDeleter) deleteAllObjects() {
 	deleteObjectsFunc := deleter.deleteObjects()
-
-	var totalObjects int64 = 0
+	if !deleter.quiet {
+		fmt.Printf("0")
+	}
 	for item := range deleter.resultsChan {
 		deleter.wg.Add(1)
 		go deleteObjectsFunc(item)
-		totalObjects = totalObjects + int64(len(item))
-		deleter.count.SetTotal(totalObjects, false)
 	}
-	deleter.count.SetTotal(totalObjects, true)
 	deleter.wg.Wait()
-
+	if !deleter.quiet {
+		fmt.Printf("\n")
+	}
 }
 
 func (deleter *BucketDeleter) delete() {
 	var logger = zap.S()
 
 	if deleter.recursive {
-
-		progress := mpb.New()
-
-		deleter.count = progress.AddBar(0,
-			mpb.PrependDecorators(
-				// simple name decorator
-				decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-				decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-			),
-		)
 
 		if deleter.versions {
 			go deleter.lister.listObjectVersions(false)
@@ -111,16 +103,6 @@ func (deleter *BucketDeleter) delete() {
 
 		if deleter.versions {
 			//we want to delete all versions of the object specified
-
-			progress := mpb.New()
-
-			deleter.count = progress.AddBar(0,
-				mpb.PrependDecorators(
-					// simple name decorator
-					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-				),
-			)
 
 			go deleter.lister.listObjectVersions(true)
 
@@ -149,7 +131,7 @@ func (deleter *BucketDeleter) delete() {
 
 }
 
-func NewBucketDeleter(source string, threads int, versions bool, recursive bool, sess *session.Session) (*BucketDeleter, error) {
+func NewBucketDeleter(source string, quite bool, threads int, versions bool, recursive bool, sess *session.Session) (*BucketDeleter, error) {
 
 	sourceURL, err := url.Parse(source)
 	if err != nil {
@@ -163,7 +145,9 @@ func NewBucketDeleter(source string, threads int, versions bool, recursive bool,
 
 	bd := &BucketDeleter{
 		source:      *sourceURL,
+		quiet:       quite,
 		wg:          sync.WaitGroup{},
+		total:       0,
 		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
 		versions:    versions,
 		recursive:   recursive,

@@ -27,6 +27,7 @@ var (
 	pVerbose = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
+	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
 	rmAllVersions = rm.Flag("all-versions", "Delete all versions").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
@@ -38,8 +39,9 @@ var (
 	cp            = app.Command("cp", "copy")
 	cpSource      = cp.Arg("source", "file or s3 location").Required().String()
 	cpDestination = cp.Arg("destination", "file or s3 location").Required().String()
+	cpQuiet       = cp.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	cpRecursive   = cp.Flag("recursive", "Recursively copy").Short('r').Default("False").Bool()
-	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("50").Int()
+	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("20").Int()
 	cpSSE         = cp.Flag("sse", "Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.").Default("AES256").Enum("AES256", "aws:kms")
 	cpSSEKMSKeyId = cp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
 	cpACL         = cp.Flag("acl", "Object ACL").Default(s3.ObjectCannedACLPrivate).Enum(s3.ObjectCannedACLAuthenticatedRead,
@@ -130,7 +132,7 @@ func main() {
 
 	switch command {
 	case rm.FullCommand():
-		deleter, err := NewBucketDeleter(*rmPath, 50, *rmAllVersions, *rmRecursive, sess)
+		deleter, err := NewBucketDeleter(*rmPath, *rmQuiet, 50, *rmAllVersions, *rmRecursive, sess)
 		if err != nil {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
@@ -157,7 +159,7 @@ func main() {
 			inputTemplate.ServerSideEncryption = cpSSEKMSKeyId
 		}
 
-		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, sess, inputTemplate)
+		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate)
 		if err != nil {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())

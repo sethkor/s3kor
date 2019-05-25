@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vbauerster/mpb/decor"
+
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-
-	"github.com/vbauerster/mpb/decor"
 
 	"github.com/vbauerster/mpb"
 
@@ -31,6 +31,7 @@ type copyPb struct {
 type BucketCopier struct {
 	source        url.URL
 	target        url.URL
+	quiet         bool
 	sourceLength  int
 	uploadManager s3manager.Uploader
 	bars          copyPb
@@ -104,15 +105,17 @@ func (copier *BucketCopier) uploadFile() func(file fileJob) {
 		} else {
 			copier.copyFile(file.path)
 		} //else
-		copier.bars.count.IncrInt64(1)
-		copier.bars.fileSize.IncrInt64(file.info.Size(), time.Since(start))
+		if !copier.quiet {
+			copier.bars.count.IncrInt64(1)
+			copier.bars.fileSize.IncrInt64(file.info.Size(), time.Since(start))
+		}
 	}
 }
 
 func (copier *BucketCopier) processFiles() {
 	defer copier.wg.Done()
 
-	allThreads := len(copier.threads)
+	allThreads := cap(copier.threads)
 	uploadFileFunc := copier.uploadFile()
 	for file := range copier.files {
 		copier.threads.acquire(1) // or block until one slot is free
@@ -160,44 +163,49 @@ func (copier *BucketCopier) copy(recursive bool) {
 		}
 		if copier.source.Scheme != "s3" {
 
-			go walkFiles(copier.source.Path, copier.files, copier.fileCounter)
+			var progress *mpb.Progress = nil
+
+			if !copier.quiet {
+				go walkFiles(copier.source.Path, copier.files, copier.fileCounter)
+				copier.wg.Add(1)
+				progress = mpb.New(mpb.WithWaitGroup(&copier.wg))
+
+				copier.bars.count = progress.AddBar(0,
+					mpb.PrependDecorators(
+						// simple name decorator
+						decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
+						decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+					),
+				)
+
+				copier.bars.fileSize = progress.AddBar(0,
+					mpb.PrependDecorators(
+						decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
+						decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
+					),
+					mpb.AppendDecorators(
+						decor.Percentage(decor.WCSyncWidth),
+						decor.Name(" "),
+						decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
+					),
+				)
+
+				go copier.bars.updateBar(copier.fileCounter, &copier.wg)
+
+			} else {
+				go walkFilesQuiet(copier.source.Path, copier.files)
+			}
+			copier.wg.Add(1)
+			go copier.processFiles()
+
+			if progress != nil {
+				progress.Wait()
+			} else {
+				//copier.wg.Add(1)
+				copier.wg.Wait()
+			}
 		}
 
-		progress := mpb.New(
-			mpb.WithRefreshRate(1000 * time.Millisecond),
-		)
-
-		copier.bars.count = progress.AddBar(0,
-			mpb.PrependDecorators(
-				// simple name decorator
-				decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-				decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-			),
-		)
-
-		copier.bars.fileSize = progress.AddBar(0,
-			mpb.PrependDecorators(
-				decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-				decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-			),
-			mpb.AppendDecorators(
-				decor.Percentage(decor.WCSyncWidth),
-				decor.Name(" "),
-				decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-				decor.Name(" ETA: "),
-				decor.AverageETA(decor.ET_STYLE_GO),
-			),
-		)
-
-		copier.wg.Add(2)
-
-		go copier.bars.updateBar(copier.fileCounter, &copier.wg)
-
-		go copier.processFiles()
-
-		copier.wg.Wait()
-
-		progress.Wait()
 	} else if !info.IsDir() {
 		//single file copy
 		copier.copyFile(copier.source.Path)
@@ -206,7 +214,7 @@ func (copier *BucketCopier) copy(recursive bool) {
 
 }
 
-func NewBucketCopier(source string, dest string, threads int, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
+func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
 
 	var svc *s3.S3 = nil
 	sourceURL, err := url.Parse(source)
@@ -243,6 +251,7 @@ func NewBucketCopier(source string, dest string, threads int, sess *session.Sess
 	bc := &BucketCopier{
 		source:        *sourceURL,
 		target:        *destURL,
+		quiet:         quiet,
 		uploadManager: *s3manager.NewUploaderWithClient(svc),
 		threads:       make(semaphore, threads),
 		files:         make(chan fileJob, bigChanSize),
