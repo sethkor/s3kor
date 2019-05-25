@@ -41,7 +41,7 @@ var (
 	cpDestination = cp.Arg("destination", "file or s3 location").Required().String()
 	cpQuiet       = cp.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	cpRecursive   = cp.Flag("recursive", "Recursively copy").Short('r').Default("False").Bool()
-	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("20").Int()
+	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("50").Int()
 	cpSSE         = cp.Flag("sse", "Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.").Default("AES256").Enum("AES256", "aws:kms")
 	cpSSEKMSKeyId = cp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
 	cpACL         = cp.Flag("acl", "Object ACL").Default(s3.ObjectCannedACLPrivate).Enum(s3.ObjectCannedACLAuthenticatedRead,

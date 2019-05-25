@@ -29,17 +29,21 @@ type copyPb struct {
 }
 
 type BucketCopier struct {
-	source        url.URL
-	target        url.URL
-	quiet         bool
-	sourceLength  int
-	uploadManager s3manager.Uploader
-	bars          copyPb
-	wg            sync.WaitGroup
-	files         chan fileJob
-	fileCounter   chan int64
-	threads       semaphore
-	template      s3manager.UploadInput
+	source          url.URL
+	target          url.URL
+	quiet           bool
+	sourceLength    int
+	uploadManager   s3manager.Uploader
+	downloadManager s3manager.Downloader
+	svc             s3.S3
+	bars            copyPb
+	wg              sync.WaitGroup
+	files           chan fileJob
+	fileCounter     chan int64
+	resultsChan     chan []*s3.ObjectIdentifier
+	threads         semaphore
+	template        s3manager.UploadInput
+	lister          *BucketLister
 }
 
 func (copier *BucketCopier) copyFile(file string) {
@@ -140,28 +144,120 @@ func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 
 }
 
+func (copier *BucketCopier) downloadObjects() (func(object *s3.ObjectIdentifier) error, error) {
+	var logger = zap.S()
+
+	var dirs sync.Map
+	theSeparator := string(os.PathSeparator)
+
+	return func(object *s3.ObjectIdentifier) error {
+		defer copier.threads.release(1)
+		//Check File path and dir
+		theFilePath := copier.target.Path + theSeparator + *object.Key
+
+		theDir := filepath.Dir(theFilePath)
+
+		_, ok := dirs.Load(theDir)
+		if !ok {
+
+			_, err := os.Lstat(theDir)
+
+			if os.IsNotExist(err) {
+				err = os.MkdirAll(theDir, os.ModePerm)
+			}
+			dirs.Store(theDir, true)
+
+			if err != nil {
+				return err
+			}
+			for {
+				theDir = filepath.Dir(theDir)
+				if theDir == "/" || theDir == "." {
+					break
+				} else {
+					dirs.Store(theDir, true)
+				}
+			}
+		}
+
+		theFile, err := os.Create(theFilePath)
+		if err != nil {
+			return err
+		}
+
+		downloadInput := s3.GetObjectInput{
+			Bucket: aws.String(copier.source.Host),
+			Key:    object.Key,
+		}
+
+		_, err = copier.downloadManager.Download(theFile, &downloadInput)
+
+		theFile.Close()
+		if err != nil {
+			if aerr, ok := err.(awserr.RequestFailure); ok {
+				switch aerr.StatusCode() {
+
+				default:
+					logger.Error(*object.Key)
+					logger.Error(aerr.Error())
+				} //default
+			} else {
+				// Print the error, cast err to awserr.Error to get the Code and
+				// Message from an error.
+				logger.Error(err.Error())
+			} //else
+
+		} //if
+		return err
+	}, nil
+}
+
+func (copier *BucketCopier) downloadAllObjects() error {
+	downloadObjectsFunc, err := copier.downloadObjects()
+
+	if err != nil {
+		return err
+	}
+	allThreads := cap(copier.threads)
+	if !copier.quiet {
+		fmt.Printf("0")
+	}
+	for item := range copier.resultsChan {
+		for _, object := range item {
+			copier.threads.acquire(1)
+			go downloadObjectsFunc(object)
+		}
+
+	}
+	copier.threads.acquire(allThreads)
+	if !copier.quiet {
+		fmt.Printf("\n")
+	}
+	return nil
+}
+
 func (copier *BucketCopier) copy(recursive bool) {
 	//var logger = zap.S()
 
 	//need to check we have been passed a directory
 
-	path, err := filepath.Abs(copier.source.Path)
-	if err != nil {
-		fmt.Printf("The user-provided path %s does not exsit\n", copier.source.Path)
-		return
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		fmt.Printf("The user-provided path %s does not exsit\n", copier.source.Path)
-		return
-	}
+	if copier.source.Scheme != "s3" {
 
-	if recursive {
-		if !info.IsDir() {
-			fmt.Printf("The user-provided path %s/ does not exsit\n", copier.source.Path)
+		path, err := filepath.Abs(copier.source.Path)
+		if err != nil {
+			fmt.Printf("The user-provided path %s does not exsit\n", copier.source.Path)
 			return
 		}
-		if copier.source.Scheme != "s3" {
+		info, err := os.Lstat(path)
+		if err != nil {
+			fmt.Printf("The user-provided path %s does not exsit\n", copier.source.Path)
+			return
+		}
+		if recursive {
+			if !info.IsDir() {
+				fmt.Printf("The user-provided path %s/ does not exsit\n", copier.source.Path)
+				return
+			}
 
 			var progress *mpb.Progress = nil
 
@@ -204,11 +300,38 @@ func (copier *BucketCopier) copy(recursive bool) {
 				//copier.wg.Add(1)
 				copier.wg.Wait()
 			}
+		} else if !info.IsDir() {
+			//single file copy
+			copier.copyFile(copier.source.Path)
+
+		}
+	} else {
+		//Download from S3
+
+		path, err := filepath.Abs(copier.target.Path)
+		if err != nil {
+			fmt.Printf("The user-provided path %s does not exsit\n", copier.target.Path)
+			return
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			fmt.Printf("The user-provided path %s does not exsit\n", copier.target.Path)
+			return
 		}
 
-	} else if !info.IsDir() {
-		//single file copy
-		copier.copyFile(copier.source.Path)
+		if !info.IsDir() {
+			fmt.Printf("The user-provided path %s/ does not exsit\n", copier.target.Path)
+			return
+		}
+		//List Objects
+		go copier.lister.listObjects()
+		copier.downloadAllObjects()
+		if err != nil {
+			fmt.Println(err)
+
+		}
+
+		//Download
 
 	}
 
@@ -249,18 +372,24 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 	template.Bucket = aws.String(destURL.Host)
 
 	bc := &BucketCopier{
-		source:        *sourceURL,
-		target:        *destURL,
-		quiet:         quiet,
-		uploadManager: *s3manager.NewUploaderWithClient(svc),
-		threads:       make(semaphore, threads),
-		files:         make(chan fileJob, bigChanSize),
-		fileCounter:   make(chan int64, threads*2),
-		wg:            sync.WaitGroup{},
-		template:      template,
+		source:          *sourceURL,
+		target:          *destURL,
+		quiet:           quiet,
+		uploadManager:   *s3manager.NewUploaderWithClient(svc),
+		downloadManager: *s3manager.NewDownloaderWithClient(svc),
+		svc:             *svc,
+		threads:         make(semaphore, threads),
+		files:           make(chan fileJob, bigChanSize),
+		fileCounter:     make(chan int64, threads*2),
+		resultsChan:     make(chan []*s3.ObjectIdentifier, threads),
+		wg:              sync.WaitGroup{},
+		template:        template,
 	}
 
-	//Some logic to determin the base path to be used as the prefix for S3.  If the source pass ends with a "/" then
+	bc.lister, err = NewBucketLister(source, threads, sess)
+	bc.lister.resultsChan = bc.resultsChan
+
+	//Some logic to determine the base path to be used as the prefix for S3.  If the source pass ends with a "/" then
 	//the base of the source path is not used in the S3 prefix as we assume iths the contents of the directory, not
 	//the actual directory that is needed in the copy
 	_, splitFile := filepath.Split(bc.source.Path)
