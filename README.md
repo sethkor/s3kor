@@ -117,6 +117,16 @@ Currently if you hit a file limit, the error is not reported.
 For optimal throughput consider using a S3 VPC Gateway endpoint if you are executing s3kor from within an AWS VPC.
 
 And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
+
+### ACL
+Sets the ACL for the object when the command is performed. If you use this parameter you must have the "s3:PutObjectAcl" permission included in the list of actions for your IAM policy.  Only accepts values of `private`, `public-read`, `public-read-write`, `authenticated-read`, `aws-exec-read`, `bucket-owner-read`, `bucket-owner-full-control` and `log-delivery-write`
+
+Defaults to `private`
+
+###Storage Class
+The type of storage to use for the object. Valid choices are: `STANDARD`, `EDUCED_REDUNDANCY`, `STANDARD_IA`, `ONEZONE_IA`, `INTELLIGENT_TIERING`, `GLACIER`, `DEEP_ARCHIVE`. 
+
+Defaults to `STANDARD`
   
 ## Sync - sync
 This is WIP
