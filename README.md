@@ -84,7 +84,14 @@ Remember when using `--all-versions` to delete all versions of an object at once
 When deleting a large number of objects, the final outcome may not be reflected by `ls` immediately due to eventual consistency.
 
 ## Copy - cp
-This is WIP, some further features to come.  Only copy to S3 is currently supported. Please raise an issue if theres a specific feature you. would like considered or prioritised.
+This is WIP, some further features to come.  Features available:
+
+- [X] Copy to S3
+- [X] Copy from S3 (No progress bars)
+- [ ] Copy S3 to S3
+- [ ] Copy S3 to S3 in another account with seperate credentials
+
+Please raise an issue if theres a specific feature you. would like considered or prioritised.
 
 ```
   -q, --quiet                   Does not display the operations performed from the specified command.
