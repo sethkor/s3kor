@@ -43,7 +43,7 @@ var (
 	cpRecursive   = cp.Flag("recursive", "Recursively copy").Short('r').Default("False").Bool()
 	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("50").Int()
 	cpSSE         = cp.Flag("sse", "Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.").Default("AES256").Enum("AES256", "aws:kms")
-	cpSSEKMSKeyId = cp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
+	cpSSEKMSKeyID = cp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
 	cpACL         = cp.Flag("acl", "Object ACL").Default(s3.ObjectCannedACLPrivate).Enum(s3.ObjectCannedACLAuthenticatedRead,
 		s3.ObjectCannedACLAwsExecRead,
 		s3.ObjectCannedACLBucketOwnerFullControl,
@@ -70,7 +70,48 @@ var (
 ///Needed to workaround abug with zap logger and daft windows file paths/names
 func newWinFileSink(u *url.URL) (zap.Sink, error) {
 	// Remove leading slash left by url.Parse()
-	return os.OpenFile(u.Path[1:], os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	return os.OpenFile(u.Path[1:], os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644) //nolint:gosec
+}
+
+func setUpLogger() {
+	var config zap.Config
+	if *pVerbose {
+
+		config = zap.NewDevelopmentConfig()
+
+	} else {
+		config = zap.NewProductionConfig()
+
+	}
+
+	logFile, err := ioutil.TempFile(os.TempDir(), "s3kor")
+
+	if err != nil {
+		defer logFile.Close()
+
+		//workaround for windows file paths and names
+
+		if runtime.GOOS == "windows" {
+			err = zap.RegisterSink("winfile", newWinFileSink)
+			if err == nil {
+
+				config.OutputPaths = []string{
+					"winfile:///" + logFile.Name(),
+				}
+			}
+		} else {
+			config.OutputPaths = []string{
+				logFile.Name(),
+			}
+		}
+	}
+
+	logger, err := config.Build()
+	if err != nil {
+		zap.ReplaceGlobals(logger)
+		zap.RedirectStdLog(logger)
+	}
+
 }
 
 func main() {
@@ -83,35 +124,8 @@ func main() {
 
 	command := kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	logFile, _ := ioutil.TempFile(os.TempDir(), "s3kor")
-	defer logFile.Close()
-
-	var config zap.Config
-	if *pVerbose {
-
-		config = zap.NewDevelopmentConfig()
-
-	} else {
-		config = zap.NewProductionConfig()
-
-	}
-
-	//workaround for windows file paths and names
-
-	if runtime.GOOS == "windows" {
-		zap.RegisterSink("winfile", newWinFileSink)
-		config.OutputPaths = []string{
-			"winfile:///" + logFile.Name(),
-		}
-	} else {
-		config.OutputPaths = []string{
-			logFile.Name(),
-		}
-	}
-
-	logger, _ := config.Build()
-	zap.ReplaceGlobals(logger)
-	zap.RedirectStdLog(logger)
+	setUpLogger()
+	logger := zap.S()
 
 	var sess *session.Session
 	if *pProfile != "" {
@@ -145,7 +159,7 @@ func main() {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			lister.list(*lsAllVersions)
+			lister.List(*lsAllVersions)
 		}
 	case cp.FullCommand():
 
@@ -155,8 +169,8 @@ func main() {
 			ServerSideEncryption: cpSSE,
 		}
 
-		if *cpSSEKMSKeyId != "" {
-			inputTemplate.ServerSideEncryption = cpSSEKMSKeyId
+		if *cpSSEKMSKeyID != "" {
+			inputTemplate.ServerSideEncryption = cpSSEKMSKeyID
 		}
 
 		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate)

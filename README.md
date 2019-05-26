@@ -87,7 +87,7 @@ When deleting a large number of objects, the final outcome may not be reflected 
 This is WIP, some further features to come.  Features available:
 
 - [X] Copy to S3
-- [X] Copy from S3 (No progress bars)
+- [X] Copy from S3
 - [ ] Copy S3 to S3
 - [ ] Copy S3 to S3 in another account with seperate credentials
 

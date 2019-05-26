@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
+//BucketDeleter stores everything we need to delete objects in a bucket
 type BucketDeleter struct {
 	source      url.URL
 	quiet       bool
@@ -131,6 +132,7 @@ func (deleter *BucketDeleter) delete() {
 
 }
 
+//NewBucketDeleter creates a new BucketDeleter struct initialized with all variables needed to list a bucket
 func NewBucketDeleter(source string, quite bool, threads int, versions bool, recursive bool, sess *session.Session) (*BucketDeleter, error) {
 
 	sourceURL, err := url.Parse(source)

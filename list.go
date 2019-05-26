@@ -19,6 +19,8 @@ type objectCounter struct {
 	size  int64
 }
 
+//BucketLister stores everything we need to list a bucket, be it for ls output or processing for a copy or remove
+//operation
 type BucketLister struct {
 	source      url.URL
 	resultsChan chan []*s3.ObjectIdentifier
@@ -28,6 +30,9 @@ type BucketLister struct {
 	threads     int
 }
 
+//Process the output of a list object versionsoperation.  Stores the objects found in a channel of Object Identifiers.
+//delete markers which are really objects themselves are also processed and stored on the channel.  For exact match
+//operations we filter the result to llook for exact matches.
 func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
 
 	if exactMatchKey == "" {
@@ -70,13 +75,15 @@ func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey strin
 
 }
 
+//Process the output of a list object operation.  Stores the objects found in a channel of Object Identifiers.  Also
+//optionally stores size and count of cobjects in a seperate channel
 func (lister *BucketLister) processListObjectsOutput(withSize bool) func(contents []*s3.Object) {
 
 	return func(contents []*s3.Object) {
 		defer lister.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, len(contents))
 
-		var fileSizeTotal int64 = 0
+		var fileSizeTotal int64
 		objectPos := 0
 
 		for _, item := range contents {
@@ -96,6 +103,7 @@ func (lister *BucketLister) processListObjectsOutput(withSize bool) func(content
 	}
 }
 
+//Lists objects and their versions in a bucket
 func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 	defer close(lister.resultsChan)
 	var logger = zap.S()
@@ -107,7 +115,7 @@ func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 		listVersionsInput.Prefix = aws.String(lister.source.Path[1:])
 	}
 
-	var numObjects int64 = 0
+	var numObjects int64
 
 	var exactMatchKey string
 	if exactMatch {
@@ -139,10 +147,11 @@ func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 			logger.Fatal(err.Error())
 		}
 		return
-	} //if
+	}
 
 }
 
+//Lists objects in a bucket
 func (lister *BucketLister) listObjects(withSize bool) {
 	defer close(lister.resultsChan)
 	var logger = zap.S()
@@ -155,7 +164,7 @@ func (lister *BucketLister) listObjects(withSize bool) {
 		listInput.Prefix = aws.String(lister.source.Path[1:])
 	}
 
-	var numObjects int64 = 0
+	var numObjects int64
 	processListObjectsOutputFunc := lister.processListObjectsOutput(withSize)
 
 	err := lister.svc.ListObjectsV2Pages(&listInput, func(result *s3.ListObjectsV2Output, lastPage bool) bool {
@@ -186,6 +195,7 @@ func (lister *BucketLister) listObjects(withSize bool) {
 
 }
 
+//Prints objets found in the list operation
 func (lister *BucketLister) printAllObjects() {
 	for item := range lister.resultsChan {
 		for _, object := range item {
@@ -195,7 +205,8 @@ func (lister *BucketLister) printAllObjects() {
 	}
 }
 
-func (lister *BucketLister) list(versions bool) {
+//List objects for a bucket whose details are tored in the lister receiver.  Can list versions too
+func (lister *BucketLister) List(versions bool) {
 
 	if versions {
 		go lister.listObjectVersions(false)
@@ -208,6 +219,7 @@ func (lister *BucketLister) list(versions bool) {
 
 }
 
+//NewBucketLister creates a new BucketLister struct initialized with all variables needed to list a bucket
 func NewBucketLister(source string, threads int, sess *session.Session) (*BucketLister, error) {
 
 	sourceURL, err := url.Parse(source)

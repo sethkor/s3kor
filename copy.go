@@ -28,6 +28,7 @@ type copyPb struct {
 	fileSize *mpb.Bar
 }
 
+//BucketCopier stores everything we need to copy objects to or from a bucket
 type BucketCopier struct {
 	source          url.URL
 	target          url.URL
@@ -50,7 +51,7 @@ type BucketCopier struct {
 func (copier *BucketCopier) copyFile(file string) {
 	var logger = zap.S()
 
-	f, err := os.Open(file)
+	f, err := os.Open(filepath.Clean(file))
 	if err != nil {
 		logger.Errorf("failed to open file %q, %v", file, err)
 	} else {
@@ -73,7 +74,10 @@ func (copier *BucketCopier) copyFile(file string) {
 				logger.Error(err.Error())
 			} //else
 		}
-		_ = f.Close()
+		err = f.Close()
+		if err != nil {
+			logger.Error(err)
+		}
 		logger.Debug("file>>>s3 ", file)
 	} //else
 }
@@ -132,8 +136,8 @@ func (copier *BucketCopier) processFiles() {
 
 func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 	defer wg.Done()
-	var fileCount int64 = 0
-	var fileSizeTotal int64 = 0
+	var fileCount int64
+	var fileSizeTotal int64
 
 	for size := range fileSize {
 		fileCount++
@@ -146,8 +150,8 @@ func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 
 func (pb copyPb) updateBarListObjects(fileSize <-chan objectCounter, wg *sync.WaitGroup) {
 	defer wg.Done()
-	var fileCount int64 = 0
-	var fileSizeTotal int64 = 0
+	var fileCount int64
+	var fileSizeTotal int64
 
 	for size := range fileSize {
 		fileCount += int64(size.count)
@@ -203,13 +207,7 @@ func (copier *BucketCopier) downloadObjects() (func(object *s3.ObjectIdentifier)
 			Key:    object.Key,
 		}
 
-		n, err := copier.downloadManager.Download(theFile, &downloadInput)
-
-		theFile.Close()
-		if !copier.quiet {
-			copier.bars.count.Increment()
-			copier.bars.fileSize.IncrInt64(n)
-		}
+		objectSize, err := copier.downloadManager.Download(theFile, &downloadInput)
 
 		if err != nil {
 			if aerr, ok := err.(awserr.RequestFailure); ok {
@@ -226,6 +224,16 @@ func (copier *BucketCopier) downloadObjects() (func(object *s3.ObjectIdentifier)
 			} //else
 
 		} //if
+
+		if !copier.quiet {
+			copier.bars.count.Increment()
+			copier.bars.fileSize.IncrInt64(objectSize)
+		}
+
+		err = theFile.Close()
+		if err != nil {
+			logger.Error(err)
+		}
 		return err
 	}, nil
 }
@@ -279,7 +287,7 @@ func (copier *BucketCopier) copy(recursive bool) {
 				return
 			}
 
-			var progress *mpb.Progress = nil
+			var progress *mpb.Progress
 
 			if !copier.quiet {
 				go walkFiles(copier.source.Path, copier.files, copier.fileCounter)
@@ -344,7 +352,7 @@ func (copier *BucketCopier) copy(recursive bool) {
 			return
 		}
 
-		var progress *mpb.Progress = nil
+		var progress *mpb.Progress
 
 		copier.wg.Add(1)
 
@@ -391,9 +399,11 @@ func (copier *BucketCopier) copy(recursive bool) {
 
 }
 
+//NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy objects in and out of
+//a bucker
 func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
 
-	var svc *s3.S3 = nil
+	var svc *s3.S3
 	sourceURL, err := url.Parse(source)
 	if err != nil {
 		return nil, err
