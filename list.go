@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
+//objectCounter stors the total object count ans sum of object sizes returned in a ListObjects page.  This is useful
+//for things that track prgress such as a progress bar
 type objectCounter struct {
 	count int
 	size  int64
@@ -33,11 +35,11 @@ type BucketLister struct {
 //Process the output of a list object versionsoperation.  Stores the objects found in a channel of Object Identifiers.
 //delete markers which are really objects themselves are also processed and stored on the channel.  For exact match
 //operations we filter the result to llook for exact matches.
-func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
+func (bl *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
 
 	if exactMatchKey == "" {
 		return func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
-			defer lister.wg.Done()
+			defer bl.wg.Done()
 			objectList := make([]*s3.ObjectIdentifier, len(versions)+len(deleters))
 			objectPos := 0
 
@@ -51,11 +53,11 @@ func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey strin
 				objectPos++
 			}
 
-			lister.resultsChan <- objectList
+			bl.resultsChan <- objectList
 		}
 	}
 	return func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
-		defer lister.wg.Done()
+		defer bl.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, 0, len(versions)+len(deleters))
 
 		for _, item := range versions {
@@ -69,18 +71,16 @@ func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey strin
 				objectList = append(objectList, &s3.ObjectIdentifier{Key: item.Key, VersionId: item.VersionId})
 			}
 		}
-
-		lister.resultsChan <- objectList
+		bl.resultsChan <- objectList
 	}
-
 }
 
 //Process the output of a list object operation.  Stores the objects found in a channel of Object Identifiers.  Also
 //optionally stores size and count of cobjects in a seperate channel
-func (lister *BucketLister) processListObjectsOutput(withSize bool) func(contents []*s3.Object) {
+func (bl *BucketLister) processListObjectsOutput(withSize bool) func(contents []*s3.Object) {
 
 	return func(contents []*s3.Object) {
-		defer lister.wg.Done()
+		defer bl.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, len(contents))
 
 		var fileSizeTotal int64
@@ -93,9 +93,9 @@ func (lister *BucketLister) processListObjectsOutput(withSize bool) func(content
 				fileSizeTotal += *item.Size
 			}
 		}
-		lister.resultsChan <- objectList
+		bl.resultsChan <- objectList
 		if withSize {
-			lister.sizeChan <- objectCounter{
+			bl.sizeChan <- objectCounter{
 				count: objectPos,
 				size:  fileSizeTotal,
 			}
@@ -104,36 +104,36 @@ func (lister *BucketLister) processListObjectsOutput(withSize bool) func(content
 }
 
 //Lists objects and their versions in a bucket
-func (lister *BucketLister) listObjectVersions(exactMatch bool) {
-	defer close(lister.resultsChan)
+func (bl *BucketLister) listObjectVersions(exactMatch bool) {
+	defer close(bl.resultsChan)
 	var logger = zap.S()
-	logger.Infof("Listing all object versions and delete markers in bucket: %s", lister.source.RawPath)
+	logger.Infof("Listing all object versions and delete markers in bucket: %s", bl.source.RawPath)
 	listVersionsInput := s3.ListObjectVersionsInput{
-		Bucket: aws.String(lister.source.Host),
+		Bucket: aws.String(bl.source.Host),
 	}
-	if len(lister.source.Path) > 0 {
-		listVersionsInput.Prefix = aws.String(lister.source.Path[1:])
+	if len(bl.source.Path) > 0 {
+		listVersionsInput.Prefix = aws.String(bl.source.Path[1:])
 	}
 
 	var numObjects int64
 
 	var exactMatchKey string
 	if exactMatch {
-		exactMatchKey = lister.source.Path[1:]
+		exactMatchKey = bl.source.Path[1:]
 	}
-	processListObjectsVersionsOutputFunc := lister.processListObjectsVersionsOutput(exactMatchKey)
-	err := lister.svc.ListObjectVersionsPages(&listVersionsInput, func(result *s3.ListObjectVersionsOutput, lastPage bool) bool {
+	processListObjectsVersionsOutputFunc := bl.processListObjectsVersionsOutput(exactMatchKey)
+	err := bl.svc.ListObjectVersionsPages(&listVersionsInput, func(result *s3.ListObjectVersionsOutput, lastPage bool) bool {
 
 		numObjects = numObjects + int64(len(result.Versions)+len(result.DeleteMarkers))
 
 		if numObjects > 0 {
-			lister.wg.Add(1)
+			bl.wg.Add(1)
 			go processListObjectsVersionsOutputFunc(result.Versions, result.DeleteMarkers)
 		} //if
 		return true
 	})
 
-	lister.wg.Wait()
+	bl.wg.Wait()
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -148,36 +148,35 @@ func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 		}
 		return
 	}
-
 }
 
 //Lists objects in a bucket
-func (lister *BucketLister) listObjects(withSize bool) {
-	defer close(lister.resultsChan)
+func (bl *BucketLister) ListObjects(withSize bool) {
+	defer close(bl.resultsChan)
 	var logger = zap.S()
 
 	listInput := s3.ListObjectsV2Input{
-		Bucket: aws.String(lister.source.Host),
+		Bucket: aws.String(bl.source.Host),
 	}
 
-	if len(lister.source.Path) > 0 {
-		listInput.Prefix = aws.String(lister.source.Path[1:])
+	if len(bl.source.Path) > 0 {
+		listInput.Prefix = aws.String(bl.source.Path[1:])
 	}
 
 	var numObjects int64
-	processListObjectsOutputFunc := lister.processListObjectsOutput(withSize)
+	processListObjectsOutputFunc := bl.processListObjectsOutput(withSize)
 
-	err := lister.svc.ListObjectsV2Pages(&listInput, func(result *s3.ListObjectsV2Output, lastPage bool) bool {
+	err := bl.svc.ListObjectsV2Pages(&listInput, func(result *s3.ListObjectsV2Output, lastPage bool) bool {
 		numObjects = numObjects + int64(len(result.Contents))
 
 		if numObjects > 0 {
-			lister.wg.Add(1)
+			bl.wg.Add(1)
 			go processListObjectsOutputFunc(result.Contents)
 		} //if
 		return true
 	})
 
-	lister.wg.Wait()
+	bl.wg.Wait()
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -192,31 +191,28 @@ func (lister *BucketLister) listObjects(withSize bool) {
 		}
 		return
 	} //if
-
 }
 
 //Prints objets found in the list operation
-func (lister *BucketLister) printAllObjects() {
-	for item := range lister.resultsChan {
+func (bl *BucketLister) printAllObjects() {
+	for item := range bl.resultsChan {
 		for _, object := range item {
 			fmt.Println(*object.Key)
 		}
-
 	}
 }
 
 //List objects for a bucket whose details are tored in the lister receiver.  Can list versions too
-func (lister *BucketLister) List(versions bool) {
+func (bl *BucketLister) List(versions bool) {
 
 	if versions {
-		go lister.listObjectVersions(false)
+		go bl.listObjectVersions(false)
 	} else {
 
-		go lister.listObjects(false)
+		go bl.ListObjects(false)
 	}
 
-	lister.printAllObjects()
-
+	bl.printAllObjects()
 }
 
 //NewBucketLister creates a new BucketLister struct initialized with all variables needed to list a bucket
@@ -232,10 +228,12 @@ func NewBucketLister(source string, threads int, sess *session.Session) (*Bucket
 
 	}
 
+	//construct a new structure.  Initialize resultsChan and sizechan even though they may be overridden
 	bl := &BucketLister{
 		source:      *sourceURL,
 		wg:          sync.WaitGroup{},
 		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
+		sizeChan:    make(chan objectCounter, threads),
 		threads:     threads,
 	}
 

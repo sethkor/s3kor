@@ -382,7 +382,7 @@ func (copier *BucketCopier) copy(recursive bool) {
 			go copier.bars.updateBarListObjects(copier.lister.sizeChan, &copier.wg)
 		}
 		//List Objects
-		go copier.lister.listObjects(true)
+		go copier.lister.ListObjects(true)
 		copier.downloadAllObjects()
 
 		if progress != nil {
