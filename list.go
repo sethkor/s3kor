@@ -72,9 +72,6 @@ func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey strin
 
 func (lister *BucketLister) processListObjectsOutput(withSize bool) func(contents []*s3.Object) {
 
-	//if withSize {
-	//	lister.sizeChan = make(chan objectCounter, lister.threads)
-	//}
 	return func(contents []*s3.Object) {
 		defer lister.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, len(contents))
@@ -224,9 +221,10 @@ func NewBucketLister(source string, threads int, sess *session.Session) (*Bucket
 	}
 
 	bl := &BucketLister{
-		source:  *sourceURL,
-		wg:      sync.WaitGroup{},
-		threads: threads,
+		source:      *sourceURL,
+		wg:          sync.WaitGroup{},
+		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
+		threads:     threads,
 	}
 
 	bl.svc, err = checkBucket(sess, sourceURL.Host)
