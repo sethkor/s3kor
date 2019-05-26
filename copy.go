@@ -41,6 +41,7 @@ type BucketCopier struct {
 	files           chan fileJob
 	fileCounter     chan int64
 	resultsChan     chan []*s3.ObjectIdentifier
+	sizeChan        chan objectCounter
 	threads         semaphore
 	template        s3manager.UploadInput
 	lister          *BucketLister
@@ -134,7 +135,6 @@ func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 	var fileCount int64 = 0
 	var fileSizeTotal int64 = 0
 
-	//var chunk int64 = 0
 	for size := range fileSize {
 		fileCount++
 		fileSizeTotal += size
@@ -142,6 +142,19 @@ func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 		pb.fileSize.SetTotal(fileSizeTotal, false)
 	}
 
+}
+
+func (pb copyPb) updateBarListObjects(fileSize <-chan objectCounter, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var fileCount int64 = 0
+	var fileSizeTotal int64 = 0
+
+	for size := range fileSize {
+		fileCount += int64(size.count)
+		fileSizeTotal += size.size
+		pb.count.SetTotal(fileCount, false)
+		pb.fileSize.SetTotal(fileSizeTotal, false)
+	}
 }
 
 func (copier *BucketCopier) downloadObjects() (func(object *s3.ObjectIdentifier) error, error) {
@@ -190,9 +203,14 @@ func (copier *BucketCopier) downloadObjects() (func(object *s3.ObjectIdentifier)
 			Key:    object.Key,
 		}
 
-		_, err = copier.downloadManager.Download(theFile, &downloadInput)
+		n, err := copier.downloadManager.Download(theFile, &downloadInput)
 
 		theFile.Close()
+		if !copier.quiet {
+			copier.bars.count.Increment()
+			copier.bars.fileSize.IncrInt64(n)
+		}
+
 		if err != nil {
 			if aerr, ok := err.(awserr.RequestFailure); ok {
 				switch aerr.StatusCode() {
@@ -213,6 +231,7 @@ func (copier *BucketCopier) downloadObjects() (func(object *s3.ObjectIdentifier)
 }
 
 func (copier *BucketCopier) downloadAllObjects() error {
+	defer copier.wg.Done()
 	downloadObjectsFunc, err := copier.downloadObjects()
 
 	if err != nil {
@@ -222,7 +241,11 @@ func (copier *BucketCopier) downloadAllObjects() error {
 	if !copier.quiet {
 		fmt.Printf("0")
 	}
+
+	//we need one thread to update the progress bar and another to do the downloads
+
 	for item := range copier.resultsChan {
+
 		for _, object := range item {
 			copier.threads.acquire(1)
 			go downloadObjectsFunc(object)
@@ -230,9 +253,6 @@ func (copier *BucketCopier) downloadAllObjects() error {
 
 	}
 	copier.threads.acquire(allThreads)
-	if !copier.quiet {
-		fmt.Printf("\n")
-	}
 	return nil
 }
 
@@ -323,15 +343,49 @@ func (copier *BucketCopier) copy(recursive bool) {
 			fmt.Printf("The user-provided path %s/ does not exsit\n", copier.target.Path)
 			return
 		}
+
+		var progress *mpb.Progress = nil
+
+		copier.wg.Add(1)
+
+		if !copier.quiet {
+
+			progress = mpb.New(mpb.WithWaitGroup(&copier.wg))
+
+			copier.bars.count = progress.AddBar(0,
+				mpb.PrependDecorators(
+					// simple name decorator
+					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
+					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+				),
+			)
+
+			copier.bars.fileSize = progress.AddBar(0,
+				mpb.PrependDecorators(
+					decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
+					decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
+				),
+				mpb.AppendDecorators(
+					decor.Percentage(decor.WCSyncWidth),
+					decor.Name(" "),
+					decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
+				),
+			)
+			go copier.bars.updateBarListObjects(copier.lister.sizeChan, &copier.wg)
+		}
 		//List Objects
-		go copier.lister.listObjects()
+		go copier.lister.listObjects(true)
 		copier.downloadAllObjects()
+
+		if progress != nil {
+			progress.Wait()
+		} else {
+			copier.wg.Wait()
+		}
 		if err != nil {
 			fmt.Println(err)
 
 		}
-
-		//Download
 
 	}
 
@@ -382,12 +436,17 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 		files:           make(chan fileJob, bigChanSize),
 		fileCounter:     make(chan int64, threads*2),
 		resultsChan:     make(chan []*s3.ObjectIdentifier, threads),
+		sizeChan:        make(chan objectCounter, threads),
 		wg:              sync.WaitGroup{},
 		template:        template,
 	}
 
-	bc.lister, err = NewBucketLister(source, threads, sess)
-	bc.lister.resultsChan = bc.resultsChan
+	if sourceURL.Scheme == "s3" {
+		bc.lister, err = NewBucketLister(source, threads, sess)
+		bc.lister.resultsChan = bc.resultsChan
+		bc.lister.threads = threads
+		bc.lister.sizeChan = bc.sizeChan
+	}
 
 	//Some logic to determine the base path to be used as the prefix for S3.  If the source pass ends with a "/" then
 	//the base of the source path is not used in the S3 prefix as we assume iths the contents of the directory, not

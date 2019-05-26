@@ -14,11 +14,18 @@ import (
 	"go.uber.org/zap"
 )
 
+type objectCounter struct {
+	count int
+	size  int64
+}
+
 type BucketLister struct {
 	source      url.URL
 	resultsChan chan []*s3.ObjectIdentifier
+	sizeChan    chan objectCounter
 	wg          sync.WaitGroup
 	svc         *s3.S3
+	threads     int
 }
 
 func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
@@ -63,18 +70,32 @@ func (lister *BucketLister) processListObjectsVersionsOutput(exactMatchKey strin
 
 }
 
-func (lister *BucketLister) processListObjectsOutput() func(contents []*s3.Object) {
+func (lister *BucketLister) processListObjectsOutput(withSize bool) func(contents []*s3.Object) {
 
+	//if withSize {
+	//	lister.sizeChan = make(chan objectCounter, lister.threads)
+	//}
 	return func(contents []*s3.Object) {
 		defer lister.wg.Done()
 		objectList := make([]*s3.ObjectIdentifier, len(contents))
+
+		var fileSizeTotal int64 = 0
 		objectPos := 0
 
 		for _, item := range contents {
 			objectList[objectPos] = &s3.ObjectIdentifier{Key: item.Key}
 			objectPos++
+			if withSize {
+				fileSizeTotal += *item.Size
+			}
 		}
 		lister.resultsChan <- objectList
+		if withSize {
+			lister.sizeChan <- objectCounter{
+				count: objectPos,
+				size:  fileSizeTotal,
+			}
+		}
 	}
 }
 
@@ -125,7 +146,7 @@ func (lister *BucketLister) listObjectVersions(exactMatch bool) {
 
 }
 
-func (lister *BucketLister) listObjects() {
+func (lister *BucketLister) listObjects(withSize bool) {
 	defer close(lister.resultsChan)
 	var logger = zap.S()
 
@@ -138,7 +159,7 @@ func (lister *BucketLister) listObjects() {
 	}
 
 	var numObjects int64 = 0
-	processListObjectsOutputFunc := lister.processListObjectsOutput()
+	processListObjectsOutputFunc := lister.processListObjectsOutput(withSize)
 
 	err := lister.svc.ListObjectsV2Pages(&listInput, func(result *s3.ListObjectsV2Output, lastPage bool) bool {
 		numObjects = numObjects + int64(len(result.Contents))
@@ -183,7 +204,7 @@ func (lister *BucketLister) list(versions bool) {
 		go lister.listObjectVersions(false)
 	} else {
 
-		go lister.listObjects()
+		go lister.listObjects(false)
 	}
 
 	lister.printAllObjects()
@@ -203,9 +224,9 @@ func NewBucketLister(source string, threads int, sess *session.Session) (*Bucket
 	}
 
 	bl := &BucketLister{
-		source:      *sourceURL,
-		wg:          sync.WaitGroup{},
-		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
+		source:  *sourceURL,
+		wg:      sync.WaitGroup{},
+		threads: threads,
 	}
 
 	bl.svc, err = checkBucket(sess, sourceURL.Host)

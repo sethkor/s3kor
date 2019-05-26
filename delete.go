@@ -87,7 +87,7 @@ func (deleter *BucketDeleter) delete() {
 			go deleter.lister.listObjectVersions(false)
 		} else {
 
-			go deleter.lister.listObjects()
+			go deleter.lister.listObjects(false)
 		}
 
 		deleter.deleteAllObjects()
