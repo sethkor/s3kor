@@ -123,7 +123,7 @@ Sets the ACL for the object when the command is performed. If you use this param
 
 Defaults to `private`
 
-###Storage Class
+### Storage Class
 The type of storage to use for the object. Valid choices are: `STANDARD`, `EDUCED_REDUNDANCY`, `STANDARD_IA`, `ONEZONE_IA`, `INTELLIGENT_TIERING`, `GLACIER`, `DEEP_ARCHIVE`. 
 
 Defaults to `STANDARD`
