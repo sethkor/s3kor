@@ -20,11 +20,8 @@ func checkBucket(sess *session.Session, bucket string) (svc *s3.S3, err error) {
 		Bucket: aws.String(bucket),
 	})
 
-	bucketLocation := "us-east-1"
-	if result.LocationConstraint != nil {
-		bucketLocation = *result.LocationConstraint
+	bucketLocation := s3.NormalizeBucketLocation(*result.LocationConstraint)
 
-	}
 	if err != nil {
 
 		if aerr, ok := err.(awserr.Error); ok {

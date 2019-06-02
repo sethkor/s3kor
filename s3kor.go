@@ -29,7 +29,7 @@ var (
 	rm            = app.Command("rm", "remove")
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
-	rmAllVersions = rm.Flag("all-versions", "Delete all versions").Default("false").Bool()
+	rmAllVersions = rm.Flag("all-versions", "Delete all versions and delete markers").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
 
 	ls            = app.Command("ls", "list")
@@ -151,7 +151,7 @@ func main() {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			deleter.delete()
+			deleter.delete(*rmAllVersions)
 		}
 	case ls.FullCommand():
 		lister, err := NewBucketLister(*lsPath, 50, sess)
