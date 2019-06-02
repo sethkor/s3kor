@@ -344,20 +344,18 @@ func (cp *BucketCopier) copyAllObjects() error {
 
 	}
 	cp.threads.acquire(allThreads)
+
+	if !cp.quiet {
+		cp.bars.count.SetTotal(cp.bars.count.Current(), true)
+		cp.bars.fileSize.SetTotal(cp.bars.fileSize.Current(), true)
+	}
+
 	return nil
 }
 
 func (cp *BucketCopier) copy(recursive bool) {
-	//var logger = zap.S()
-
-	//need to check we have been passed a directory
 
 	if cp.source.Scheme == "s3" && cp.target.Scheme == "s3" {
-		//s3 to s3 copy
-
-		//list the source
-
-		//copy files
 
 		var progress *mpb.Progress
 
