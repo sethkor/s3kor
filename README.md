@@ -70,7 +70,7 @@ All commands can take the `--auto-region` flag to automatically detect the right
 ## List - ls
 Nothing special here.  Just remember S3 has prefixes, not directory paths.
 
-You can list all versions if you like, the version d is outputted first:
+You can list all versions if you like, the version id is outputted first:
 
 ```
       --all-versions     List all versions
