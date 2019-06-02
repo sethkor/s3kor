@@ -33,7 +33,7 @@ var (
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
 
 	ls            = app.Command("ls", "list")
-	lsAllVersions = ls.Flag("all-versions", "Delete all versions").Default("false").Bool()
+	lsAllVersions = ls.Flag("all-versions", "List all versions").Default("false").Bool()
 	lsPath        = ls.Arg("S3Uri", "S3 URL").Required().String()
 
 	cp            = app.Command("cp", "copy")
@@ -129,17 +129,26 @@ func main() {
 
 	var sess *session.Session
 	if *pProfile != "" {
+
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			Profile:           *pProfile,
 			SharedConfigState: session.SharedConfigEnable,
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				MaxRetries:                    aws.Int(30),
+			},
 		}))
 
 	} else {
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			SharedConfigState: session.SharedConfigEnable,
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				MaxRetries:                    aws.Int(30),
+			},
 		}))
-
 	} //else
+
 	if *pRegion != "" {
 		sess.Config.Region = aws.String(*pRegion)
 	}

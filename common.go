@@ -14,24 +14,23 @@ func checkBucket(sess *session.Session, bucket string) (svc *s3.S3, err error) {
 
 	var logger = zap.S()
 
-	svc = s3.New(sess, &aws.Config{MaxRetries: aws.Int(30)})
+	svc = s3.New(sess)
 
 	result, err := svc.GetBucketLocation(&s3.GetBucketLocationInput{
 		Bucket: aws.String(bucket),
 	})
 
-	bucketLocation := s3.NormalizeBucketLocation(*result.LocationConstraint)
-
 	if err != nil {
+		fmt.Println(err)
 
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 
 			case s3.ErrCodeNoSuchBucket:
-				fmt.Println(aerr.Message())
 				logger.Fatal(aerr.Message())
 			default:
 				logger.Fatal(aerr.Error())
+
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
@@ -42,7 +41,7 @@ func checkBucket(sess *session.Session, bucket string) (svc *s3.S3, err error) {
 	} //if
 
 	svc = s3.New(sess, &aws.Config{MaxRetries: aws.Int(30),
-		Region: aws.String(bucketLocation)})
+		Region: aws.String(s3.NormalizeBucketLocation(*result.LocationConstraint))})
 
 	return svc, err
 }

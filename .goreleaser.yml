@@ -17,10 +17,10 @@ builds:
     - amd64
     - 386
     - arm64
-    - arm
-  goarm:
-    - 6
-    - 7
+#    - arm
+#  goarm:
+#    - 6
+#    - 7
   ignore:
     - goos: darwin
       goarch: 386
@@ -28,6 +28,10 @@ builds:
       goarch: arm64
     - goos: darwin
       goarch: arm
+    - goos: windows
+      goarch: arm64
+    - goos: windows
+      goarch: 386
 archives:
   -
     replacements:

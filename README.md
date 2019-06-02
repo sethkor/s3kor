@@ -15,8 +15,8 @@ For other platforms take a look at the releases in Github.  I build binaries for
 |OS            | Architecture                           |
 |:------------ |:-------------------------------------- |
 |Mac (Darwin)  | amd64 (aka x86_64)                     |
-|Linux         | amd64, arm64, arm6, arm7, 386 (32 bit) |
-|Windows       | amd64, 386 (32 bit)                    |
+|Linux         | amd64, arm64, 386 (32 bit) |
+|Windows       | amd64                   |
 
 Let me know if you would like a particular os/arch binary regularly built.
 
@@ -69,6 +69,13 @@ All commands can take the `--auto-region` flag to automatically detect the right
 
 ## List - ls
 Nothing special here.  Just remember S3 has prefixes, not directory paths.
+
+You can list all versions if you like, the version d is outputted first:
+
+```
+      --all-versions     List all versions
+```
+  
 
 ## Remove - rm
 ```
