@@ -265,81 +265,87 @@ func (cp *BucketCopier) downloadAllObjects() error {
 	return nil
 }
 
-//func (cp *BucketCopier) copyObjects() (func(object *s3.ObjectIdentifier) error, error) {
-//	var logger = zap.S()
-//
-//	copyTemplate := s3.CopyObjectInput{
-//		ACL:                  cp.template.ACL,
-//		Bucket:               aws.String(cp.target.Host),
-//		Key:                  aws.String(cp.target.Path),
-//		ServerSideEncryption: cp.template.ServerSideEncryption,
-//	}
-//
-//	if *cp.template.ServerSideEncryption != "" {
-//		copyTemplate.ServerSideEncryption = cp.template.ServerSideEncryption
-//	}
-//	return func(object *s3.ObjectIdentifier) error {
-//		defer cp.threads.release(1)
-//
-//		if object.
-//
-//		objectSize, err := cp.downloadManager.Download(theFile, &downloadInput)
-//
-//		if err != nil {
-//			if aerr, ok := err.(awserr.RequestFailure); ok {
-//				switch aerr.StatusCode() {
-//
-//				default:
-//					logger.Error(*object.Key)
-//					logger.Error(aerr.Error())
-//				} //default
-//			} else {
-//				// Print the error, cast err to awserr.Error to get the Code and
-//				// Message from an error.
-//				logger.Error(err.Error())
-//			} //else
-//
-//		} //if
-//
-//		if !cp.quiet {
-//			cp.bars.count.Increment()
-//			cp.bars.fileSize.IncrInt64(objectSize)
-//		}
-//
-//		err = theFile.Close()
-//		if err != nil {
-//			logger.Error(err)
-//		}
-//		return err
-//	}, nil
-//}
-//
-//func (cp *BucketCopier) copyAllObjects() error {
-//	defer cp.wg.Done()
-//
-//	downloadObjectsFunc, err := cp.copyObjects()
-//
-//	if err != nil {
-//		return err
-//	}
-//	allThreads := cap(cp.threads)
-//	if !cp.quiet {
-//		fmt.Printf("0")
-//	}
-//
-//	//we need one thread to update the progress bar and another to do the downloads
-//
-//	for item := range cp.resultsChan {
-//
-//		for _, object := range item {
-//			cp.threads.acquire(1)
-//			go downloadObjectsFunc(object)
-//		}
-//
-//	}
-//	cp.threads.acquire(allThreads)
-//	return nil
-//}
+func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
+	var logger = zap.S()
+
+	copyTemplate := s3.CopyObjectInput{
+		ACL:                  cp.template.ACL,
+		Bucket:               aws.String(cp.target.Host),
+		Key:                  aws.String(cp.target.Path),
+		ServerSideEncryption: cp.template.ServerSideEncryption,
+	}
+
+	if *cp.template.ServerSideEncryption != "" {
+		copyTemplate.ServerSideEncryption = cp.template.ServerSideEncryption
+	}
+	return func(object *s3.Object) error {
+		defer cp.threads.release(1)
+
+		if *object.Size < maxCopySize {
+
+			copyInput := copyTemplate
+
+			copyInput.CopySource = aws.String(cp.source.Host + "/" + *object.Key)
+
+			if cp.source.Path[len(cp.source.Path)-1:] == "/" {
+				copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key)[len(cp.source.Path)-1:])
+			} else {
+				copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key))
+			}
+
+			_, err := cp.uploadManager.S3.CopyObject(&copyInput)
+
+			if err != nil {
+				if aerr, ok := err.(awserr.RequestFailure); ok {
+					switch aerr.StatusCode() {
+
+					default:
+						logger.Error(*object.Key)
+						logger.Error(aerr.Error())
+					}
+				} else {
+					// Print the error, cast err to awserr.Error to get the Code and
+					// Message from an error.
+					logger.Error(err.Error())
+				}
+				return err
+			}
+		}
+
+		if !cp.quiet {
+			cp.bars.count.Increment()
+			cp.bars.fileSize.IncrInt64(*object.Size)
+		}
+		return nil
+	}, nil
+}
+
+func (cp *BucketCopier) copyAllObjects() error {
+	defer cp.wg.Done()
+
+	copyObjectsFunc, err := cp.copyObjects()
+
+	if err != nil {
+		return err
+	}
+	allThreads := cap(cp.threads)
+	if !cp.quiet {
+		fmt.Printf("0")
+	}
+
+	//we need one thread to update the progress bar and another to do the downloads
+
+	for item := range cp.objects {
+
+		for _, object := range item {
+			cp.threads.acquire(1)
+			go copyObjectsFunc(object)
+		}
+
+	}
+	cp.threads.acquire(allThreads)
+	return nil
+}
 
 func (cp *BucketCopier) copy(recursive bool) {
 	//var logger = zap.S()
@@ -385,17 +391,13 @@ func (cp *BucketCopier) copy(recursive bool) {
 		// List Objects
 		go cp.lister.ListObjects(true)
 
-		//cp.copyAllObjects()
+		cp.copyAllObjects()
 
 		if progress != nil {
 			progress.Wait()
 		} else {
 			cp.wg.Wait()
 		}
-		//if err != nil {
-		//	fmt.Println(err)
-		//
-		//}
 
 	} else if cp.source.Scheme != "s3" {
 

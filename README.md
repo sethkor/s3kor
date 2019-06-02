@@ -95,7 +95,7 @@ This is WIP, some further features to come.  Features available:
 
 - [X] Copy to S3
 - [X] Copy from S3
-- [ ] Copy S3 to S3
+- [X] Copy S3 to S3 **!!!	Objects up to 5GB only for the time being**
 - [ ] Copy S3 to S3 in another account with seperate credentials
 
 Please raise an issue if theres a specific feature you. would like considered or prioritised.
@@ -124,6 +124,8 @@ Currently if you hit a file limit, the error is not reported.
 For optimal throughput consider using a S3 VPC Gateway endpoint if you are executing s3kor from within an AWS VPC.
 
 And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
+
+***WARNING*** For S3 to S3 copy this is limited for now to objects upto 5GB in size.  Anything bigger than this shall just be skipped.  A fix for this is WIP.
 
 ### ACL
 Sets the ACL for the object when the command is performed. If you use this parameter you must have the "s3:PutObjectAcl" permission included in the list of actions for your IAM policy.  Only accepts values of `private`, `public-read`, `public-read-write`, `authenticated-read`, `aws-exec-read`, `bucket-owner-read`, `bucket-owner-full-control` and `log-delivery-write`
