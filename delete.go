@@ -14,36 +14,37 @@ import (
 	"go.uber.org/zap"
 )
 
-//BucketDeleter stores everything we need to delete objects in a bucket
+// BucketDeleter stores everything we need to delete objects in a bucket
 type BucketDeleter struct {
-	source      url.URL
-	quiet       bool
-	recursive   bool
-	versions    bool
-	total       int64
-	resultsChan chan []*s3.ObjectIdentifier
-	wg          sync.WaitGroup
-	svc         *s3.S3
-	lister      *BucketLister
+	source    url.URL
+	quiet     bool
+	recursive bool
+	//versions    bool
+	total    int64
+	objects  chan []*s3.Object
+	versions chan []*s3.ObjectIdentifier
+	wg       sync.WaitGroup
+	svc      *s3.S3
+	lister   *BucketLister
 }
 
-func (deleter *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) {
+func (bd *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) {
 	var logger = zap.S()
 	return func(item []*s3.ObjectIdentifier) {
-		defer deleter.wg.Done()
+		defer bd.wg.Done()
 
 		deleteInput := s3.DeleteObjectsInput{
-			Bucket: aws.String(deleter.source.Host),
+			Bucket: aws.String(bd.source.Host),
 			Delete: &s3.Delete{
 				Objects: item,
 				Quiet:   aws.Bool(true)},
 		}
 
-		_, err := deleter.svc.DeleteObjects(&deleteInput)
+		_, err := bd.svc.DeleteObjects(&deleteInput)
 
-		atomic.AddInt64(&deleter.total, int64((len(item))))
-		if !deleter.quiet {
-			fmt.Printf("\r%d", deleter.total)
+		atomic.AddInt64(&bd.total, int64((len(item))))
+		if !bd.quiet {
+			fmt.Printf("\r%d", bd.total)
 		}
 
 		if err != nil {
@@ -53,64 +54,82 @@ func (deleter *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) 
 				default:
 					logger.Error(*deleteInput.Delete)
 					logger.Error(aerr.Error())
-				} //default
+				}
 			} else {
 				// Print the error, cast err to awserr.Error to get the Code and
 				// Message from an error.
 				logger.Error(err.Error())
-			} //else
+			}
 			return
-		} //if
+		}
 	}
 }
 
-func (deleter *BucketDeleter) deleteAllObjects() {
-	deleteObjectsFunc := deleter.deleteObjects()
-	if !deleter.quiet {
+func (bd *BucketDeleter) deleteAllObjects(versions bool) {
+	deleteObjectsFunc := bd.deleteObjects()
+	if !bd.quiet {
 		fmt.Printf("0")
 	}
-	for item := range deleter.resultsChan {
-		deleter.wg.Add(1)
-		go deleteObjectsFunc(item)
+
+	if versions {
+		for item := range bd.versions {
+			bd.wg.Add(1)
+			go deleteObjectsFunc(item)
+		}
+	} else {
+		for item := range bd.objects {
+
+			//convert from objects to object identifiers
+			identifiers := make([]*s3.ObjectIdentifier, len(item))
+			for pos, object := range item {
+				identifiers[pos] = &s3.ObjectIdentifier{
+					Key: object.Key,
+				}
+			}
+
+			bd.wg.Add(1)
+			go deleteObjectsFunc(identifiers)
+		}
 	}
-	deleter.wg.Wait()
-	if !deleter.quiet {
+
+	bd.wg.Wait()
+	if !bd.quiet {
 		fmt.Printf("\n")
 	}
 }
 
-func (deleter *BucketDeleter) delete() {
+func (bd *BucketDeleter) delete(versions bool) {
 	var logger = zap.S()
 
-	if deleter.recursive {
+	if bd.recursive {
 
-		if deleter.versions {
-			go deleter.lister.listObjectVersions(false)
+		if versions {
+			go bd.lister.listObjectVersions(false)
 		} else {
 
-			go deleter.lister.ListObjects(false)
+			go bd.lister.ListObjects(false)
 		}
 
-		deleter.deleteAllObjects()
+		bd.deleteAllObjects(versions)
 
 	} else {
-		//we are only deleting a single object
-		//ensure we have more than just the host in the url
+		// we are only deleting a single object
+		// ensure we have more than just the host in the url
 
-		if deleter.source.Path == "" {
+		if bd.source.Path == "" {
 			fmt.Println("Must pass an object in the bucket to remove, not just the bucket name")
 			logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name")
 		}
 
-		if deleter.versions {
-			//we want to delete all versions of the object specified
+		if versions {
+			// we want to delete all versions of the object specified
 
-			go deleter.lister.listObjectVersions(true)
+			go bd.lister.listObjectVersions(true)
 
 		} else {
-			_, err := deleter.svc.DeleteObject(&s3.DeleteObjectInput{
-				Bucket: aws.String(deleter.source.Host),
-				Key:    aws.String(deleter.source.Path[1:]),
+			_, err := bd.svc.DeleteObject(&s3.DeleteObjectInput{
+				Bucket: aws.String(bd.source.Host),
+				Key:    aws.String(bd.source.Path[1:]),
 			})
 
 			if err != nil {
@@ -119,20 +138,20 @@ func (deleter *BucketDeleter) delete() {
 
 					default:
 						logger.Error(aerr.Error())
-					} //default
+					}
 				} else {
 					// Print the error, cast err to awserr.Error to get the Code and
 					// Message from an error.
 					logger.Error(err.Error())
-				} //else
+				}
 				return
-			} //if
+			}
 		}
 	}
 
 }
 
-//NewBucketDeleter creates a new BucketDeleter struct initialized with all variables needed to list a bucket
+// NewBucketDeleter creates a new BucketDeleter struct initialized with all variables needed to list a bucket
 func NewBucketDeleter(source string, quite bool, threads int, versions bool, recursive bool, sess *session.Session) (*BucketDeleter, error) {
 
 	sourceURL, err := url.Parse(source)
@@ -146,20 +165,25 @@ func NewBucketDeleter(source string, quite bool, threads int, versions bool, rec
 	}
 
 	bd := &BucketDeleter{
-		source:      *sourceURL,
-		quiet:       quite,
-		wg:          sync.WaitGroup{},
-		total:       0,
-		resultsChan: make(chan []*s3.ObjectIdentifier, threads),
-		versions:    versions,
-		recursive:   recursive,
+		source:    *sourceURL,
+		quiet:     quite,
+		wg:        sync.WaitGroup{},
+		total:     0,
+		recursive: recursive,
 	}
 
 	bd.lister, err = NewBucketLister(source, threads, sess)
-	bd.lister.resultsChan = bd.resultsChan
 
 	if err != nil {
 		return nil, err
+	}
+
+	if versions {
+		bd.versions = make(chan []*s3.ObjectIdentifier, threads)
+		bd.lister.versions = bd.versions
+	} else {
+		bd.objects = make(chan []*s3.Object, threads)
+		bd.lister.objects = bd.objects
 	}
 
 	bd.svc, err = checkBucket(sess, sourceURL.Host)

@@ -29,11 +29,11 @@ var (
 	rm            = app.Command("rm", "remove")
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
-	rmAllVersions = rm.Flag("all-versions", "Delete all versions").Default("false").Bool()
+	rmAllVersions = rm.Flag("all-versions", "Delete all versions and delete markers").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
 
 	ls            = app.Command("ls", "list")
-	lsAllVersions = ls.Flag("all-versions", "Delete all versions").Default("false").Bool()
+	lsAllVersions = ls.Flag("all-versions", "List all versions").Default("false").Bool()
 	lsPath        = ls.Arg("S3Uri", "S3 URL").Required().String()
 
 	cp            = app.Command("cp", "copy")
@@ -129,17 +129,26 @@ func main() {
 
 	var sess *session.Session
 	if *pProfile != "" {
+
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			Profile:           *pProfile,
 			SharedConfigState: session.SharedConfigEnable,
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				MaxRetries:                    aws.Int(30),
+			},
 		}))
 
 	} else {
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			SharedConfigState: session.SharedConfigEnable,
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				MaxRetries:                    aws.Int(30),
+			},
 		}))
-
 	} //else
+
 	if *pRegion != "" {
 		sess.Config.Region = aws.String(*pRegion)
 	}
@@ -151,7 +160,7 @@ func main() {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			deleter.delete()
+			deleter.delete(*rmAllVersions)
 		}
 	case ls.FullCommand():
 		lister, err := NewBucketLister(*lsPath, 50, sess)
