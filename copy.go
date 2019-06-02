@@ -133,6 +133,11 @@ func (cp *BucketCopier) processFiles() {
 	}
 	cp.threads.acquire(allThreads) // don't continue until all goroutines complete
 
+	if !cp.quiet {
+		cp.bars.count.SetTotal(cp.bars.count.Current(), true)
+		cp.bars.fileSize.SetTotal(cp.bars.fileSize.Current(), true)
+	}
+
 }
 
 func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
@@ -262,6 +267,11 @@ func (cp *BucketCopier) downloadAllObjects() error {
 
 	}
 	cp.threads.acquire(allThreads)
+
+	if !cp.quiet {
+		cp.bars.count.SetTotal(cp.bars.count.Current(), true)
+		cp.bars.fileSize.SetTotal(cp.bars.fileSize.Current(), true)
+	}
 	return nil
 }
 
