@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -10,15 +12,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// checkBucket checks a buckets region.  We use the HeadObject function as this is can be used anonymously and is not
+// subject to the buckets policy like GetBucketRegion.  The region is retorned in the header of the HTTP response.
 func checkBucket(sess *session.Session, bucket string) (svc *s3.S3, err error) {
 
 	var logger = zap.S()
 
-	svc = s3.New(sess)
+	svc = s3.New(session.Must(session.NewSession(&aws.Config{
+		Credentials: credentials.AnonymousCredentials,
+		Region:      sess.Config.Region,
+	})))
 
-	result, err := svc.GetBucketLocation(&s3.GetBucketLocationInput{
+	req, _ := svc.HeadBucketRequest(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
+
+	err = req.Send()
 
 	if err != nil {
 		fmt.Println(err)
@@ -40,8 +49,9 @@ func checkBucket(sess *session.Session, bucket string) (svc *s3.S3, err error) {
 		return svc, err
 	} //if
 
+	req.HTTPResponse.Header.Get("X-Amz-Bucket-Region")
 	svc = s3.New(sess, &aws.Config{MaxRetries: aws.Int(30),
-		Region: aws.String(s3.NormalizeBucketLocation(*result.LocationConstraint))})
+		Region: aws.String(s3.NormalizeBucketLocation(req.HTTPResponse.Header.Get("X-Amz-Bucket-Region")))})
 
 	return svc, err
 }
