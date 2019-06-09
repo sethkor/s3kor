@@ -288,20 +288,24 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 	if *cp.template.ServerSideEncryption != "" {
 		copyTemplate.ServerSideEncryption = cp.template.ServerSideEncryption
 	}
+	cm := NewCopyerWithClient(&cp.svc)
+
 	return func(object *s3.Object) error {
 		defer cp.threads.release(1)
 
-		if *object.Size < maxCopySize {
+		copyInput := copyTemplate
 
-			copyInput := copyTemplate
+		copyInput.CopySource = aws.String(cp.source.Host + "/" + *object.Key)
 
-			copyInput.CopySource = aws.String(cp.source.Host + "/" + *object.Key)
+		if len(cp.source.Path) == 0 {
+			copyInput.Key = object.Key
+		} else if cp.source.Path[len(cp.source.Path)-1:] == "/" {
+			copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key)[len(cp.source.Path)-1:])
+		} else {
+			copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key))
+		}
 
-			if cp.source.Path[len(cp.source.Path)-1:] == "/" {
-				copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key)[len(cp.source.Path)-1:])
-			} else {
-				copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key))
-			}
+		if *object.Size <= MaxCopyPartSize {
 
 			_, err := cp.uploadManager.S3.CopyObject(&copyInput)
 
@@ -318,6 +322,18 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 					// Message from an error.
 					logger.Error(err.Error())
 				}
+				return err
+			}
+		} else {
+
+			cmi := MultiCopyInput{
+				Input:  &copyInput,
+				Bucket: aws.String(cp.source.Host),
+			}
+
+			_, err := cm.Copy(&cmi)
+
+			if err != nil {
 				return err
 			}
 		}
