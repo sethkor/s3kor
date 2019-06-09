@@ -95,7 +95,7 @@ This is WIP, some further features to come.  Features available:
 
 - [X] Copy to S3
 - [X] Copy from S3
-- [X] Copy S3 to S3 **!!!	Objects up to 5GB only for the time being**
+- [X] Copy S3 to S3
 - [ ] Copy S3 to S3 in another account with seperate credentials
 
 Please raise an issue if theres a specific feature you. would like considered or prioritised.
@@ -125,7 +125,14 @@ For optimal throughput consider using a S3 VPC Gateway endpoint if you are execu
 
 And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
 
-***WARNING*** For S3 to S3 copy this is limited for now to objects upto 5GB in size.  Anything bigger than this shall just be skipped.  A fix for this is WIP.
+### Multiparts
+Multipart chunks size for Upload or Download is set to 5MB.  Any objects greater than 5MB in size shal be sent in multiparts. `s3kor` will send up to 5 parts concurrently per object.
+
+### Progress Bar Behaviour
+The progress bar is not aware of multipart operations for now.  It will only update once a large object operation is complete.
+
+### S3 to S3 Large objects over 5GB
+Large objects S3 to S3 are supported.  Since this happens in the AWS backend, the part size for these operations is set to 5GB for maximum performance.  `s3kor` will copy up to 5 parts concurrently for per object.
 
 ### ACL
 Sets the ACL for the object when the command is performed. If you use this parameter you must have the "s3:PutObjectAcl" permission included in the list of actions for your IAM policy.  Only accepts values of `private`, `public-read`, `public-read-write`, `authenticated-read`, `aws-exec-read`, `bucket-owner-read`, `bucket-owner-full-control` and `log-delivery-write`
