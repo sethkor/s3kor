@@ -186,7 +186,7 @@ func NewBucketDeleter(source string, quite bool, threads int, versions bool, rec
 		bd.lister.objects = bd.objects
 	}
 
-	bd.svc, err = checkBucket(sess, sourceURL.Host)
+	bd.svc, err = checkBucket(sess, sourceURL.Host, nil)
 	if err != nil {
 		return nil, err
 	}

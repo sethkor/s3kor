@@ -561,7 +561,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 // a bucket
 func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
 
-	var svc *s3.S3
+	var svc, destSvc *s3.S3
 	sourceURL, err := url.Parse(source)
 	if err != nil {
 		return nil, err
@@ -577,18 +577,28 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 
 	}
 
+	var wg sync.WaitGroup
 	if sourceURL.Scheme == "s3" {
-		svc, err = checkBucket(sess, sourceURL.Host)
-		if err != nil {
-			return nil, err
-		}
+		wg.Add(1)
+		go func() {
+			svc, err = checkBucket(sess, sourceURL.Host, &wg)
+		}()
 	}
 
 	if destURL.Scheme == "s3" {
-		svc, err = checkBucket(sess, destURL.Host)
-		if err != nil {
-			return nil, err
-		}
+		wg.Add(1)
+		go func() {
+			destSvc, err = checkBucket(sess, destURL.Host, &wg)
+		}()
+	}
+
+	wg.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	if svc == nil {
+		svc = destSvc
 	}
 
 	template.Bucket = aws.String(destURL.Host)
@@ -607,7 +617,7 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 	}
 
 	if sourceURL.Scheme == "s3" {
-		bc.lister, err = NewBucketLister(source, threads, sess)
+		bc.lister, err = NewBucketListerWithSvc(source, threads, svc)
 		//if destURL.Scheme == "s3" {
 		bc.objects = make(chan []*s3.Object, threads)
 		bc.lister.objects = bc.objects

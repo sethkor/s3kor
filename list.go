@@ -225,9 +225,7 @@ func (bl *BucketLister) List(versions bool) {
 	bl.printAllObjects(versions)
 }
 
-// NewBucketLister creates a new BucketLister struct initialized with all variables needed to list a bucket
-func NewBucketLister(source string, threads int, sess *session.Session) (*BucketLister, error) {
-
+func initBucketLister(source string, threads int) (*BucketLister, error) {
 	sourceURL, err := url.Parse(source)
 	if err != nil {
 		return nil, err
@@ -247,11 +245,29 @@ func NewBucketLister(source string, threads int, sess *session.Session) (*Bucket
 		sizeChan: make(chan objectCounter, threads),
 		threads:  threads,
 	}
+	return bl, nil
+}
 
-	bl.svc, err = checkBucket(sess, sourceURL.Host)
-	if err != nil {
-		return nil, err
+// NewBucketLister creates a new BucketLister struct initialized with all variables needed to list a bucket
+func NewBucketLister(source string, threads int, sess *session.Session) (*BucketLister, error) {
+
+	bl, err := initBucketLister(source, threads)
+
+	if err == nil {
+		bl.svc, err = checkBucket(sess, bl.source.Host, nil)
 	}
 
-	return bl, nil
+	return bl, err
+}
+
+// NewBucketListerWithSvc creates a new BucketLister struct initialized with all variables needed to list a bucket
+func NewBucketListerWithSvc(source string, threads int, svc *s3.S3) (*BucketLister, error) {
+
+	bl, err := initBucketLister(source, threads)
+
+	if err == nil {
+		bl.svc = svc
+	}
+
+	return bl, err
 }

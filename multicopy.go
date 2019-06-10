@@ -23,7 +23,7 @@ const MaxCopyParts = 10000
 // Amazon S3.  Should be 5MB
 const MinCopyPartSize int64 = 1024 * 1024 * 5
 
-// MinCopyPartSize is the maximum allowed part size when copying a part to
+// MaxCopyPartSize is the maximum allowed part size when copying a part to
 // Amazon S3.  Sould be 5GB
 const MaxCopyPartSize int64 = 1024 * 1024 * 1024 * 5
 
