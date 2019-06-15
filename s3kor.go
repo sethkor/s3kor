@@ -58,6 +58,7 @@ var (
 		s3.StorageClassOnezoneIa,
 		s3.StorageClassReducedRedundancy,
 		s3.StorageClassIntelligentTiering)
+	cpDestProfile = cp.Flag("dest-profile", "Destination bucket AWS credentials/config file profile to use if different from --profile").String()
 )
 
 //version variable which can be overidden at compile time
@@ -182,7 +183,7 @@ func main() {
 			inputTemplate.ServerSideEncryption = cpSSEKMSKeyID
 		}
 
-		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate)
+		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile)
 		if err != nil {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())

@@ -36,7 +36,8 @@ type BucketCopier struct {
 	sourceLength    int
 	uploadManager   s3manager.Uploader
 	downloadManager s3manager.Downloader
-	svc             s3.S3
+	svc             *s3.S3
+	destSvc         *s3.S3
 	bars            copyPb
 	wg              sync.WaitGroup
 	files           chan fileJob
@@ -288,7 +289,7 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 	if *cp.template.ServerSideEncryption != "" {
 		copyTemplate.ServerSideEncryption = cp.template.ServerSideEncryption
 	}
-	cm := NewCopyerWithClient(&cp.svc)
+	cm := NewCopyerWithClient(cp.svc)
 
 	return func(object *s3.Object) error {
 		defer cp.threads.release(1)
@@ -415,7 +416,12 @@ func (cp *BucketCopier) copy(recursive bool) {
 		// List Objects
 		go cp.lister.ListObjects(true)
 
-		cp.copyAllObjects()
+		if cp.destSvc == nil {
+			cp.copyAllObjects()
+		} else {
+			rp := newRemoteCopier(cp)
+			rp.remoteCopy()
+		}
 
 		if progress != nil {
 			progress.Wait()
@@ -559,7 +565,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 
 // NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy objects in and out of
 // a bucket
-func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput) (*BucketCopier, error) {
+func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*BucketCopier, error) {
 
 	var svc, destSvc *s3.S3
 	sourceURL, err := url.Parse(source)
@@ -586,6 +592,18 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 	}
 
 	if destURL.Scheme == "s3" {
+
+		if destProfile != "" {
+			sess = session.Must(session.NewSessionWithOptions(session.Options{
+				Profile:           destProfile,
+				SharedConfigState: session.SharedConfigEnable,
+				Config: aws.Config{
+					CredentialsChainVerboseErrors: aws.Bool(true),
+					MaxRetries:                    aws.Int(30),
+				},
+			}))
+		}
+
 		wg.Add(1)
 		go func() {
 			destSvc, err = checkBucket(sess, destURL.Host, &wg)
@@ -609,11 +627,16 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 		quiet:           quiet,
 		uploadManager:   *s3manager.NewUploaderWithClient(svc),
 		downloadManager: *s3manager.NewDownloaderWithClient(svc),
-		svc:             *svc,
+		svc:             svc,
+		destSvc:         destSvc,
 		threads:         make(semaphore, threads),
 		sizeChan:        make(chan objectCounter, threads),
 		wg:              sync.WaitGroup{},
 		template:        template,
+	}
+
+	if destProfile != "" {
+		bc.uploadManager = *s3manager.NewUploaderWithClient(destSvc)
 	}
 
 	if sourceURL.Scheme == "s3" {

@@ -27,7 +27,7 @@ const MinCopyPartSize int64 = 1024 * 1024 * 5
 // Amazon S3.  Sould be 5GB
 const MaxCopyPartSize int64 = 1024 * 1024 * 1024 * 5
 
-// DefaultCopyPartSize is the default part size to buffer chunks of a
+// DefaultCopyPartSize is the default part size to buffer chunkThreads of a
 // payload into.
 const DefaultCopyPartSize = MaxCopyPartSize
 
@@ -38,7 +38,7 @@ const DefaultCopyConcurrency = 5
 // A MultiCopyFailure wraps a failed S3 multipart copy. An error returned
 // will satisfy this interface when a multi part copy failed to copy all
 // chucks to S3. In the case of a failure the CopyID is needed to operate on
-// the chunks, if any, which were copyed.
+// the chunkThreads, if any, which were copyed.
 //
 // Example:
 //
@@ -124,7 +124,7 @@ func WithCopyerRequestOptions(opts ...request.Option) func(*Copyer) {
 // on this structure for multiple objects and across concurrent goroutines.
 // Mutating the Copyer's properties is not safe to be done concurrently.
 type Copyer struct {
-	// The buffer size (in bytes) to use when buffering data into chunks and
+	// The buffer size (in bytes) to use when buffering data into chunkThreads and
 	// sending them as parts to S3. The minimum allowed part size is 5MB, and
 	// if this value is set to zero, the DefaultCopyPartSize value will be used.
 	PartSize int64
@@ -233,7 +233,7 @@ func NewCopyerWithClient(svc s3iface.S3API, options ...func(*Copyer)) *Copyer {
 }
 
 // Copy copys an object to S3, intelligently buffering large files into
-// smaller chunks and sending them in parallel across multiple goroutines. You
+// smaller chunkThreads and sending them in parallel across multiple goroutines. You
 // can configure the buffer size and concurrency through the Copyer's parameters.
 //
 // Additional functional options can be provided to configure the individual
@@ -266,7 +266,7 @@ func (c Copyer) Copy(input *MultiCopyInput, options ...func(*Copyer)) (*CopyOutp
 }
 
 // CopyWithContext copys an object to S3, intelligently buffering large
-// files into smaller chunks and sending them in parallel across multiple
+// files into smaller chunkThreads and sending them in parallel across multiple
 // goroutines. You can configure the buffer size and concurrency through the
 // Copyer's parameters.
 //
@@ -519,7 +519,7 @@ func (u *multicopyer) copy() (*CopyOutput, error) {
 	}, nil
 }
 
-// readChunk runs in worker goroutines to pull chunks off of the ch channel
+// readChunk runs in worker goroutines to pull chunkThreads off of the ch channel
 // and send() them as CopyPart requests.
 func (u *multicopyer) readChunk(ch chan copyChunk) {
 	defer u.wg.Done()
