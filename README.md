@@ -127,7 +127,7 @@ For optimal throughput consider using a S3 VPC Gateway endpoint if you are execu
 
 And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
 
-For S3 to S3 with different AWS profiles, object must be downloaded from the source and the uploaded.  To cater for large objects and to limit memory usage this is done utilizing multi parts by relies on GO garbage collector to tidy things up promptly which doesn't always happen  Some further optimizations are WIP but expect this operation to consume a bit of memory.
+For S3 to S3 with different AWS profiles, object must be downloaded from the source and the uploaded.  To cater for large objects and to limit memory usage this is done utilizing multi parts and will attempt to limit in memory stoarge to approximatley 200MB.  This relies on GO garbage collector to tidy things up promptly which doesn't always happen.  Some further optimizations are WIP but expect this operation to consume a bit of memory.
 
 ### Multiparts
 Multipart chunks size for Upload or Download is set to 5MB.  Any objects greater than 5MB in size shal be sent in multiparts. `s3kor` will send up to 5 parts concurrently per object.

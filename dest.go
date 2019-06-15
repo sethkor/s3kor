@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"runtime"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws/awsutil"
@@ -259,6 +260,7 @@ func (rp *RemoteCopy) remoteCopyObject() (func(object *s3.Object) error, error) 
 
 		err = rp.uploadChunks(params.Bucket, aws.String(rp.cp.target.Path+"/"+(*object.Key)[len(rp.cp.source.Path):]), resp.UploadId, chunks)
 
+		runtime.GC()
 		return err
 	}, nil
 }
