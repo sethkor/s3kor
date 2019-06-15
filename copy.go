@@ -134,11 +134,6 @@ func (cp *BucketCopier) processFiles() {
 	}
 	cp.threads.acquire(allThreads) // don't continue until all goroutines complete
 
-	if !cp.quiet {
-		cp.bars.count.SetTotal(cp.bars.count.Current(), true)
-		cp.bars.fileSize.SetTotal(cp.bars.fileSize.Current(), true)
-	}
-
 }
 
 func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
@@ -269,10 +264,6 @@ func (cp *BucketCopier) downloadAllObjects() error {
 	}
 	cp.threads.acquire(allThreads)
 
-	if !cp.quiet {
-		cp.bars.count.SetTotal(cp.bars.count.Current(), true)
-		cp.bars.fileSize.SetTotal(cp.bars.fileSize.Current(), true)
-	}
 	return nil
 }
 
@@ -372,11 +363,6 @@ func (cp *BucketCopier) copyAllObjects() error {
 	}
 	cp.threads.acquire(allThreads)
 
-	if !cp.quiet {
-		cp.bars.count.SetTotal(cp.bars.count.Current(), true)
-		cp.bars.fileSize.SetTotal(cp.bars.fileSize.Current(), true)
-	}
-
 	return nil
 }
 
@@ -386,7 +372,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 
 		var progress *mpb.Progress
 
-		cp.wg.Add(1)
+		cp.wg.Add(2)
 
 		if !cp.quiet {
 
@@ -397,6 +383,13 @@ func (cp *BucketCopier) copy(recursive bool) {
 					// simple name decorator
 					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
 					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+				),
+				mpb.AppendDecorators(
+					// replace empt decorator with "done" message, OnComplete event
+					decor.OnComplete(
+						// Empty decorator
+						decor.Name(""), "Done!",
+					),
 				),
 			)
 
@@ -409,6 +402,10 @@ func (cp *BucketCopier) copy(recursive bool) {
 					decor.Percentage(decor.WCSyncWidth),
 					decor.Name(" "),
 					decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
+					decor.OnComplete(
+						// Empty decorator
+						decor.Name(""), " Done!",
+					),
 				),
 			)
 			go cp.bars.updateBarListObjects(cp.lister.sizeChan, &cp.wg)
@@ -423,9 +420,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 			rp.remoteCopy()
 		}
 
-		if progress != nil {
-			progress.Wait()
-		} else {
+		if progress == nil {
 			cp.wg.Wait()
 		}
 

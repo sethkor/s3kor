@@ -30,7 +30,6 @@ var chunkThreads = make(semaphore, 20)
 
 type RemoteCopy struct {
 	cp          *BucketCopier
-	parts       int64
 	chunkThread semaphore
 	wg          sync.WaitGroup
 }
@@ -46,7 +45,9 @@ func (rp *RemoteCopy) downloadChunks(object *s3.Object, chunks chan chunk) error
 		Key:    object.Key,
 	}
 
-	for num := int64(1); num < rp.parts+1; num++ {
+	parts := ((*object.Size) / chunkSize) + 1
+
+	for num := int64(1); num < parts+1; num++ {
 		if last >= *object.Size {
 			last = *object.Size - 1
 		}
@@ -91,11 +92,11 @@ func (rp *RemoteCopy) downloadChunks(object *s3.Object, chunks chan chunk) error
 	return nil
 }
 
-func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGroup) (func(chunk chunk), s3.CompletedMultipartUpload) {
+func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGroup, parts int64) (func(chunk chunk), s3.CompletedMultipartUpload) {
 	var logger = zap.S()
 
 	var cmu s3.CompletedMultipartUpload
-	cmu.Parts = make([]*s3.CompletedPart, rp.parts)
+	cmu.Parts = make([]*s3.CompletedPart, parts)
 
 	input := s3.UploadPartInput{
 		Bucket:   aws.String(rp.cp.target.Host),
@@ -105,7 +106,9 @@ func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGr
 
 	return func(chunk chunk) {
 		defer wg.Done()
-		buffer := make([]byte, (chunk.finish-chunk.start)+1)
+
+		bufferLength := (chunk.finish - chunk.start) + 1
+		buffer := make([]byte, bufferLength)
 
 		buffer, err := ioutil.ReadAll(chunk.buffer)
 
@@ -137,21 +140,21 @@ func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGr
 		}
 
 		if !rp.cp.quiet {
-			rp.cp.bars.fileSize.IncrInt64(int64(len(buffer)))
+			rp.cp.bars.fileSize.IncrInt64(bufferLength)
 		}
+
 	}, cmu
 }
 
 //
-func (rp *RemoteCopy) uploadChunks(bucket *string, key *string, uploadId *string, chunks chan chunk) error {
+func (rp *RemoteCopy) uploadChunks(bucket *string, key *string, uploadId *string, chunks chan chunk, parts int64) error {
 
 	var wg sync.WaitGroup
-	uploadChunkFunc, cmu := rp.uploadChunk(key, uploadId, &wg)
+	uploadChunkFunc, cmu := rp.uploadChunk(key, uploadId, &wg, parts)
 
 	for chunk := range chunks {
 		wg.Add(1)
 		go uploadChunkFunc(chunk)
-
 	}
 
 	wg.Wait()
@@ -252,15 +255,14 @@ func (rp *RemoteCopy) remoteCopyObject() (func(object *s3.Object) error, error) 
 			return err
 		}
 
-		rp.parts = ((*object.Size) / chunkSize) + 1
+		parts := ((*object.Size) / chunkSize) + 1
 
 		chunks := make(chan chunk, 20)
 
 		go rp.downloadChunks(object, chunks)
 
-		err = rp.uploadChunks(params.Bucket, aws.String(rp.cp.target.Path+"/"+(*object.Key)[len(rp.cp.source.Path):]), resp.UploadId, chunks)
+		err = rp.uploadChunks(params.Bucket, aws.String(rp.cp.target.Path+"/"+(*object.Key)[len(rp.cp.source.Path):]), resp.UploadId, chunks, parts)
 
-		runtime.GC()
 		return err
 	}, nil
 }
@@ -285,15 +287,11 @@ func (rp *RemoteCopy) remoteCopy() error {
 		for _, object := range item {
 			rp.cp.threads.acquire(1)
 			go copyObjectsFunc(object)
+			runtime.GC()
 		}
 
 	}
 	rp.cp.threads.acquire(allThreads)
-
-	if !rp.cp.quiet {
-		rp.cp.bars.count.SetTotal(rp.cp.bars.count.Current(), true)
-		rp.cp.bars.fileSize.SetTotal(rp.cp.bars.fileSize.Current(), true)
-	}
 
 	return nil
 }
