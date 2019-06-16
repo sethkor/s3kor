@@ -1,5 +1,5 @@
 # s3kor
-AWS S3 command line tools built in [Go](https://golang.org/) using multiple threads for fast parallel actions like copy, list and remove to AWS S3.  It's intended as a drop in replacement for the [aws cli s3](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html) set of commands so all flags, values and args should be the same with the exception of a few new ones.
+Fast AWS S3 command line tools built in [Go](https://golang.org/) using multiparts and multiple threads for fast parallel actions like copy, list and remove to AWS S3.  It's intended as a drop in replacement for the [aws cli s3](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html) set of commands so all flags, values and args should be the same with the exception of a few new ones.
 
 Easiest way to install if you're on a Mac or Linux (amd64 or arm64)  is to use [Homebrew](https://brew.sh/)
 
@@ -28,9 +28,9 @@ go get github.com/sethkor/s3kor
 
 The cli emulates the [aws cli s3](https://aws.amazon.com/cli/) commands as close as possible so as to be a drop in replacement.  Supported s3 operations:
 
-- [X] List - ls
-- [X] Remove - rm
 - [X] Copy - cp
+- [X] Remove - rm
+- [X] List - ls
 - [ ] Syncronize - sync
 
 Use `--help` on the command line to help you along the way.
@@ -65,30 +65,6 @@ Commands:
 
 ### Automatic region detection for your buckets
 All commands can take the `--auto-region` flag to automatically detect the right region for your bucket operation, rather than you passing the specific region with `--region`.
-
-
-## List - ls
-Nothing special here.  Just remember S3 has prefixes, not directory paths.
-
-You can list all versions if you like, the version id is outputted first:
-
-```
-      --all-versions     List all versions
-```
-  
-
-## Remove - rm
-```
-  -q, --quiet            Does not display the operations performed from the specified command.
-  -r, --recursive        Recurisvley delete
-      --all-versions     Delete all versions
-```
-
-Both options can be used together in a single command which is not possible with the AWS cli
-
-Remember when using `--all-versions` to delete all versions of an object at once, the eventual consistency model of S3 applies.
-
-When deleting a large number of objects, the final outcome may not be reflected by `ls` immediately due to eventual consistency.
 
 ## Copy - cp
 This is WIP, some further features to come.  Features available:
@@ -127,7 +103,9 @@ For optimal throughput consider using a S3 VPC Gateway endpoint if you are execu
 
 And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
 
-For S3 to S3 with different AWS profiles, objects must be downloaded from the source first and then uploaded.  To cater for large objects and to limit memory usage this is done utilizing multi parts and will attempt to limit in memory stoarge to approximatley 200MB.  This relies on GO garbage collector to tidy things up promptly which doesn't always happen.  Some further optimizations are WIP but expect this operation to consume a bit of memory.
+### Supports different AWS account credentials for source and destination buckets
+
+If you ever need to copy objects to an account which you don't own and need a seperate set of AWS credentials to access it, s3kor is perfect for the job.  For S3 to S3 with different AWS credentials, objects must be downloaded from the source first and then uploaded.  To cater for large objects and to limit memory usage this is done utilizing multi parts of 5MB in size and will attempt to limit in memory storage.  This relies on GO garbage collector to tidy things up promptly which doesn't always happen.  Some further optimizations are WIP but expect this operation to consume a bit of memory.
 
 ### Multiparts
 Multipart chunks size for Upload or Download is set to 5MB.  Any objects greater than 5MB in size shall be sent in multiparts. `s3kor` will send up to 5 parts concurrently per object.
@@ -147,6 +125,28 @@ Defaults to `private`
 The type of storage to use for the object. Valid choices are: `STANDARD`, `EDUCED_REDUNDANCY`, `STANDARD_IA`, `ONEZONE_IA`, `INTELLIGENT_TIERING`, `GLACIER`, `DEEP_ARCHIVE`. 
 
 Defaults to `STANDARD`
+
+## Remove - rm
+```
+  -q, --quiet            Does not display the operations performed from the specified command.
+  -r, --recursive        Recurisvley delete
+      --all-versions     Delete all versions
+```
+
+It is possible to remove all versions of an object recursivley in a single command which is not possible with the AWS cli
+
+Remember when using `--all-versions` to delete all versions of an object at once, the eventual consistency model of S3 applies.
+
+When deleting a large number of objects, the final outcome may not be reflected by `ls` immediately due to eventual consistency.
+
+## List - ls
+Nothing special here.  Just remember S3 has prefixes, not directory paths.
+
+You can list all versions if you like, the version id is outputted first:
+
+```
+      --all-versions     List all versions
+```
   
 ## Sync - sync
 This is WIP
