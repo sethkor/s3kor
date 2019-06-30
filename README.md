@@ -59,7 +59,6 @@ Commands:
 
   cp [<flags>] <source> <destination>
     copy
-    
    
   sync [<flags>] <source> <destination>
     sync
