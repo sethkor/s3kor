@@ -121,7 +121,7 @@ func WithCopyerRequestOptions(opts ...request.Option) func(*Copyer) {
 }
 
 // The Copyer structure that calls Copy(). It is safe to call Copy()
-// on this structure for multiple objects and across concurrent goroutines.
+// on this structure for multiple srcObjects and across concurrent goroutines.
 // Mutating the Copyer's properties is not safe to be done concurrently.
 type Copyer struct {
 	// The buffer size (in bytes) to use when buffering data into chunkThreads and
@@ -166,7 +166,7 @@ type Copyer struct {
 	RequestOptions []request.Option
 }
 
-// NewCopyer creates a new Copyer instance to copy objects to S3. Pass In
+// NewCopyer creates a new Copyer instance to copy srcObjects to S3. Pass In
 // additional functional options to customize the copyer's behavior. Requires a
 // client.ConfigProvider in order to create a S3 service client. The session.Session
 // satisfies the client.ConfigProvider interface.
@@ -198,7 +198,7 @@ func NewCopyer(c client.ConfigProvider, options ...func(*Copyer)) *Copyer {
 	return u
 }
 
-// NewCopyerWithClient creates a new Copyer instance to copy objects to S3. Pass in
+// NewCopyerWithClient creates a new Copyer instance to copy srcObjects to S3. Pass in
 // additional functional options to customize the copyer's behavior. Requires
 // a S3 service client to make S3 API calls.
 //
@@ -294,14 +294,14 @@ func (c Copyer) CopyWithContext(ctx aws.Context, input *MultiCopyInput, opts ...
 	return i.copy()
 }
 
-// CopyWithIterator will copy a batched amount of objects to S3. This operation uses
+// CopyWithIterator will copy a batched amount of srcObjects to S3. This operation uses
 // the iterator pattern to know which object to copy next. Since this is an interface this
 // allows for custom defined functionality.
 //
 // Example:
 //	svc:= s3manager.NewCopyer(sess)
 //
-//	objects := []BatchCopyObject{
+//	srcObjects := []BatchCopyObject{
 //		{
 //			Object:	&s3manager.MultiCopyInput {
 //				Key: aws.String("key"),
@@ -310,7 +310,7 @@ func (c Copyer) CopyWithContext(ctx aws.Context, input *MultiCopyInput, opts ...
 //		},
 //	}
 //
-//	iter := &s3manager.CopyObjectsIterator{Objects: objects}
+//	iter := &s3manager.CopyObjectsIterator{Objects: srcObjects}
 //	if err := svc.CopyWithIterator(aws.BackgroundContext(), iter); err != nil {
 //		return err
 //	}
@@ -344,7 +344,7 @@ func (c Copyer) CopyWithContext(ctx aws.Context, input *MultiCopyInput, opts ...
 //	}
 //
 //	if len(errs) > 0 {
-//		return NewBatchError("BatchedCopyIncomplete", "some objects have failed to copy.", errs)
+//		return NewBatchError("BatchedCopyIncomplete", "some srcObjects have failed to copy.", errs)
 //	}
 //	return nil
 //}

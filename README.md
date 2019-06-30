@@ -31,7 +31,7 @@ The cli emulates the [aws cli s3](https://aws.amazon.com/cli/) commands as close
 - [X] Copy - cp
 - [X] Remove - rm
 - [X] List - ls
-- [ ] Syncronize - sync
+- [ ] Syncronize - sync WIP
 
 Use `--help` on the command line to help you along the way.
 
@@ -59,6 +59,11 @@ Commands:
 
   cp [<flags>] <source> <destination>
     copy
+    
+   
+  sync [<flags>] <source> <destination>
+    sync
+
 ```
 
 `--profile` will always look in the usual place for your aws `credentials` or `config` file.
@@ -148,8 +153,8 @@ You can list all versions if you like, the version id is outputted first:
       --all-versions     List all versions
 ```
   
-## Sync - sync
-This is WIP
+## Sync - sync WIP
+This is WIP!  Currently only built and barley tested for S3 to S3 sync
 
 
 

@@ -28,7 +28,7 @@ type copyPb struct {
 	fileSize *mpb.Bar
 }
 
-// BucketCopier stores everything we need to copy objects to or from a bucket
+// BucketCopier stores everything we need to copy srcObjects to or from a bucket
 type BucketCopier struct {
 	source          url.URL
 	target          url.URL
@@ -366,48 +366,51 @@ func (cp *BucketCopier) copyAllObjects() error {
 	return nil
 }
 
+func (cp *BucketCopier) setupBars() *mpb.Progress {
+	cp.wg.Add(1)
+	progress := mpb.New(mpb.WithWaitGroup(&cp.wg))
+
+	cp.bars.count = progress.AddBar(0,
+		mpb.PrependDecorators(
+			// simple name decorator
+			decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
+			decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+		),
+		mpb.AppendDecorators(
+			// replace empty decorator with "done" message, OnComplete event
+			decor.OnComplete(
+				// Empty decorator
+				decor.Name(""), "Done!",
+			),
+		),
+	)
+
+	cp.bars.fileSize = progress.AddBar(0,
+		mpb.PrependDecorators(
+			decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
+			decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
+		),
+		mpb.AppendDecorators(
+			decor.Percentage(decor.WCSyncWidth),
+			decor.Name(" "),
+			decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
+			decor.OnComplete(
+				// Empty decorator
+				decor.Name(""), " Done!",
+			),
+		),
+	)
+
+	return progress
+}
+
 func (cp *BucketCopier) copy(recursive bool) {
 
+	var progress *mpb.Progress
 	if cp.source.Scheme == "s3" && cp.target.Scheme == "s3" {
 
-		var progress *mpb.Progress
-
-		cp.wg.Add(2)
-
 		if !cp.quiet {
-
-			progress = mpb.New(mpb.WithWaitGroup(&cp.wg))
-
-			cp.bars.count = progress.AddBar(0,
-				mpb.PrependDecorators(
-					// simple name decorator
-					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-				),
-				mpb.AppendDecorators(
-					// replace empt decorator with "done" message, OnComplete event
-					decor.OnComplete(
-						// Empty decorator
-						decor.Name(""), "Done!",
-					),
-				),
-			)
-
-			cp.bars.fileSize = progress.AddBar(0,
-				mpb.PrependDecorators(
-					decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-				),
-				mpb.AppendDecorators(
-					decor.Percentage(decor.WCSyncWidth),
-					decor.Name(" "),
-					decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-					decor.OnComplete(
-						// Empty decorator
-						decor.Name(""), " Done!",
-					),
-				),
-			)
+			progress = cp.setupBars()
 			go cp.bars.updateBarListObjects(cp.lister.sizeChan, &cp.wg)
 		}
 		// List Objects
@@ -420,7 +423,9 @@ func (cp *BucketCopier) copy(recursive bool) {
 			rp.remoteCopy()
 		}
 
-		if progress == nil {
+		if progress != nil {
+			progress.Wait()
+		} else {
 			cp.wg.Wait()
 		}
 
@@ -442,33 +447,9 @@ func (cp *BucketCopier) copy(recursive bool) {
 				return
 			}
 
-			var progress *mpb.Progress
-
 			if !cp.quiet {
 				go walkFiles(cp.source.Path, cp.files, cp.fileCounter)
-				cp.wg.Add(1)
-				progress = mpb.New(mpb.WithWaitGroup(&cp.wg))
-
-				cp.bars.count = progress.AddBar(0,
-					mpb.PrependDecorators(
-						// simple name decorator
-						decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-						decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-					),
-				)
-
-				cp.bars.fileSize = progress.AddBar(0,
-					mpb.PrependDecorators(
-						decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-						decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-					),
-					mpb.AppendDecorators(
-						decor.Percentage(decor.WCSyncWidth),
-						decor.Name(" "),
-						decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-					),
-				)
-
+				progress = cp.setupBars()
 				go cp.bars.updateBar(cp.fileCounter, &cp.wg)
 
 			} else {
@@ -480,7 +461,6 @@ func (cp *BucketCopier) copy(recursive bool) {
 			if progress != nil {
 				progress.Wait()
 			} else {
-				// cp.wg.Add(1)
 				cp.wg.Wait()
 			}
 		} else if !info.IsDir() {
@@ -507,35 +487,13 @@ func (cp *BucketCopier) copy(recursive bool) {
 			return
 		}
 
-		var progress *mpb.Progress
-
 		cp.wg.Add(1)
 
 		withSize := false
 
 		if !cp.quiet {
 			withSize = true
-			progress = mpb.New(mpb.WithWaitGroup(&cp.wg))
-
-			cp.bars.count = progress.AddBar(0,
-				mpb.PrependDecorators(
-					// simple name decorator
-					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-				),
-			)
-
-			cp.bars.fileSize = progress.AddBar(0,
-				mpb.PrependDecorators(
-					decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-				),
-				mpb.AppendDecorators(
-					decor.Percentage(decor.WCSyncWidth),
-					decor.Name(" "),
-					decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-				),
-			)
+			progress = cp.setupBars()
 			go cp.bars.updateBarListObjects(cp.lister.sizeChan, &cp.wg)
 		} else {
 			close(cp.sizeChan)
@@ -558,7 +516,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 
 }
 
-// NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy objects in and out of
+// NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy srcObjects in and out of
 // a bucket
 func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*BucketCopier, error) {
 
@@ -623,7 +581,6 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 		uploadManager:   *s3manager.NewUploaderWithClient(svc),
 		downloadManager: *s3manager.NewDownloaderWithClient(svc),
 		svc:             svc,
-		destSvc:         destSvc,
 		threads:         make(semaphore, threads),
 		sizeChan:        make(chan objectCounter, threads),
 		wg:              sync.WaitGroup{},
@@ -632,17 +589,17 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 
 	if destProfile != "" {
 		bc.uploadManager = *s3manager.NewUploaderWithClient(destSvc)
+		bc.destSvc = destSvc
 	}
 
 	if sourceURL.Scheme == "s3" {
 		bc.lister, err = NewBucketListerWithSvc(source, threads, svc)
-		//if destURL.Scheme == "s3" {
+
 		bc.objects = make(chan []*s3.Object, threads)
 		bc.lister.objects = bc.objects
-		//} else {
+
 		bc.versions = make(chan []*s3.ObjectIdentifier, threads)
 		bc.lister.versions = bc.versions
-		//}
 
 		bc.lister.threads = threads
 		bc.lister.sizeChan = bc.sizeChan

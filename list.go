@@ -24,8 +24,7 @@ type objectCounter struct {
 // BucketLister stores everything we need to list a bucket, be it for ls output or processing for a copy or remove
 // operation
 type BucketLister struct {
-	source url.URL
-	//resultsChan chan []*s3.ObjectIdentifier
+	source   url.URL
 	objects  chan []*s3.Object
 	versions chan []*s3.ObjectIdentifier
 	sizeChan chan objectCounter
@@ -34,8 +33,8 @@ type BucketLister struct {
 	threads  int
 }
 
-// Process the output of a list object versionsoperation.  Stores the objects found in a channel of Object Identifiers.
-// delete markers which are really objects themselves are also processed and stored on the channel.  For exact match
+// Process the output of a list object versionsoperation.  Stores the srcObjects found in a channel of Object Identifiers.
+// delete markers which are really srcObjects themselves are also processed and stored on the channel.  For exact match
 // operations we filter the result to llook for exact matches.
 func (bl *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) func(versions []*s3.ObjectVersion, deleters []*s3.DeleteMarkerEntry) {
 
@@ -77,7 +76,7 @@ func (bl *BucketLister) processListObjectsVersionsOutput(exactMatchKey string) f
 	}
 }
 
-// Process the output of a list object operation.  Stores the objects found in a channel of Object Identifiers.  Also
+// Process the output of a list object operation.  Stores the srcObjects found in a channel of Object Identifiers.  Also
 // optionally stores size and count of cobjects in a seperate channel
 func (bl *BucketLister) processListObjectsOutput(withSize bool) func(contents []*s3.Object) {
 
@@ -106,7 +105,7 @@ func (bl *BucketLister) processListObjectsOutput(withSize bool) func(contents []
 	}
 }
 
-// Lists objects and their versions in a bucket
+// Lists srcObjects and their versions in a bucket
 func (bl *BucketLister) listObjectVersions(exactMatch bool) {
 	defer close(bl.versions)
 	var logger = zap.S()
@@ -150,7 +149,7 @@ func (bl *BucketLister) listObjectVersions(exactMatch bool) {
 	}
 }
 
-// ListObjects lists objects in a bucket
+// ListObjects lists srcObjects in a bucket
 func (bl *BucketLister) ListObjects(withSize bool) {
 	defer close(bl.objects)
 	var logger = zap.S()
@@ -210,7 +209,7 @@ func (bl *BucketLister) printAllObjects(versions bool) {
 
 }
 
-// List objects for a bucket whose details are stored in the lister receiver.  Can list versions too
+// List srcObjects for a bucket whose details are stored in the srcLister receiver.  Can list versions too
 func (bl *BucketLister) List(versions bool) {
 
 	if versions {

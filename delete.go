@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// BucketDeleter stores everything we need to delete objects in a bucket
+// BucketDeleter stores everything we need to delete srcObjects in a bucket
 type BucketDeleter struct {
 	source    url.URL
 	quiet     bool
@@ -79,7 +79,7 @@ func (bd *BucketDeleter) deleteAllObjects(versions bool) {
 	} else {
 		for item := range bd.objects {
 
-			//convert from objects to object identifiers
+			//convert from srcObjects to object identifiers
 			identifiers := make([]*s3.ObjectIdentifier, len(item))
 			for pos, object := range item {
 				identifiers[pos] = &s3.ObjectIdentifier{
