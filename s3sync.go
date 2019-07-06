@@ -35,14 +35,13 @@ type Syncer struct {
 	wg              sync.WaitGroup
 	files           chan fileJob
 	fileCounter     chan int64
-	//versions        chan []*s3.ObjectIdentifier
-	srcObjects  chan []*s3.Object
-	destObjects chan []*s3.Object
-	sizeChan    chan objectCounter
-	threads     semaphore
-	template    s3.CopyObjectInput
-	srcLister   *BucketLister
-	destLister  *BucketLister
+	srcObjects      chan []*s3.Object
+	destObjects     chan []*s3.Object
+	sizeChan        chan objectCounter
+	threads         semaphore
+	template        s3manager.UploadInput
+	srcLister       *BucketLister
+	destLister      *BucketLister
 
 	destMap map[string]objDateSize
 }
@@ -113,11 +112,10 @@ func (sy *Syncer) copyObjects() (func(object *s3.Object) error, error) {
 			if err != nil {
 				return err
 			}
-		}
 
+		}
 		if !sy.quiet {
 			sy.bars.count.Increment()
-			sy.bars.fileSize.IncrInt64(*object.Size)
 		}
 		return nil
 	}, nil
@@ -143,13 +141,17 @@ func (sy *Syncer) syncAllObjectsS3() error {
 		for _, object := range item {
 			copyObj := true
 			if details, ok := sy.destMap[*object.Key]; ok {
-				if details.lastModified.After(*object.LastModified) && details.size == object.Size {
+				if details.lastModified.After(*object.LastModified) && *details.size == *object.Size {
 					copyObj = false
 				}
 			}
 			if copyObj {
 				sy.threads.acquire(1)
 				go copyObjectsFunc(object)
+			} else {
+				if !sy.quiet {
+					sy.bars.count.Increment()
+				}
 			}
 		}
 	}
@@ -158,16 +160,282 @@ func (sy *Syncer) syncAllObjectsS3() error {
 	return nil
 }
 
-func (sy *Syncer) obj2Map(objChan chan []*s3.Object, wg *sync.WaitGroup) {
+func (sy *Syncer) obj2Map(wg *sync.WaitGroup) {
 	defer wg.Done()
-	for objSlice := range objChan {
+	for objSlice := range sy.destObjects {
 		for _, obj := range objSlice {
 			sy.destMap[*obj.Key] = objDateSize{obj.LastModified, obj.Size}
 		}
 	}
 }
 
+func (sy *Syncer) file2Map(wg *sync.WaitGroup) {
+	defer wg.Done()
+	for file := range sy.files {
+		modTime := file.info.ModTime()
+		size := file.info.Size()
+		sy.destMap[file.path] = objDateSize{&modTime, &size}
+	}
+}
+
+func (sy *Syncer) copyFile(file string) {
+	var logger = zap.S()
+
+	f, err := os.Open(filepath.Clean(file))
+	if err != nil {
+		logger.Errorf("failed to open file %q, %v", file, err)
+	} else {
+		// Upload the file to S3.
+		input := sy.template
+		input.Key = aws.String(sy.target.Path + "/" + file[sy.sourceLength:])
+		input.Body = f
+		_, err = sy.uploadManager.Upload(&input)
+
+		if err != nil {
+			logger.Error("Object failed to create in S3 ", file)
+
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				default:
+					logger.Error(aerr.Error())
+				}
+			} else {
+				// Message from an error.
+				logger.Error(err.Error())
+			}
+		}
+		err = f.Close()
+		if err != nil {
+			logger.Error(err)
+		}
+		logger.Debug("file>>>s3 ", file)
+	}
+}
+
+func (sy *Syncer) uploadFile() func(file fileJob) {
+	var logger = zap.S()
+
+	return func(file fileJob) {
+		defer sy.threads.release(1)
+		input := sy.template
+		if file.info.IsDir() {
+			// Don't create a prefix for the base dir
+			if len(file.path) != sy.sourceLength {
+				input.Key = aws.String(sy.target.Path + "/" + file.path[sy.sourceLength:] + "/")
+				_, err := sy.uploadManager.Upload(&input)
+
+				if err != nil {
+					logger.Error("Prefix failed to create in S3 ", file.path)
+
+					if aerr, ok := err.(awserr.Error); ok {
+						switch aerr.Code() {
+						default:
+							logger.Error(aerr.Error())
+						}
+					} else {
+						// Message from an error.
+						logger.Error(err.Error())
+					}
+					return
+				}
+				logger.Info("dir>>>>s3 ", file.path)
+			}
+		} else {
+			sy.copyFile(file.path)
+		}
+		if !sy.quiet {
+			sy.bars.count.IncrInt64(1)
+		}
+	}
+}
+
+func (sy *Syncer) syncToS3() error {
+	defer sy.wg.Done()
+
+	uploadFileFunc := sy.uploadFile()
+
+	allThreads := cap(sy.threads)
+	if !sy.quiet {
+		fmt.Printf("0")
+	}
+
+	//we need one thread to update the progress bar and another to do the downloads
+
+	for file := range sy.files {
+		copyFile := true
+		if details, ok := sy.destMap[file.path[sy.sourceLength:]]; ok {
+			if details.lastModified.After(file.info.ModTime()) && *details.size == file.info.Size() {
+				copyFile = false
+			}
+		}
+		if copyFile {
+			sy.threads.acquire(1)
+			go uploadFileFunc(file)
+		} else {
+			if !sy.quiet {
+				sy.bars.count.IncrInt64(1)
+			}
+		}
+
+	}
+	sy.threads.acquire(allThreads)
+
+	return nil
+}
+
+func (sy *Syncer) downloadObjects() (func(object *s3.Object) error, error) {
+	var logger = zap.S()
+
+	var dirs sync.Map
+	theSeparator := string(os.PathSeparator)
+
+	return func(object *s3.Object) error {
+		defer sy.threads.release(1)
+		// Check File path and dir
+		theFilePath := sy.target.Path + theSeparator + *object.Key
+
+		theDir := filepath.Dir(theFilePath)
+
+		_, ok := dirs.Load(theDir)
+		if !ok {
+
+			_, err := os.Lstat(theDir)
+
+			if os.IsNotExist(err) {
+				err = os.MkdirAll(theDir, os.ModePerm)
+			}
+			dirs.Store(theDir, true)
+
+			if err != nil {
+				return err
+			}
+			for {
+				theDir = filepath.Dir(theDir)
+				if theDir == "/" || theDir == "." {
+					break
+				} else {
+					dirs.Store(theDir, true)
+				}
+			}
+		}
+
+		theFile, err := os.Create(theFilePath)
+		if err != nil {
+			return err
+		}
+
+		downloadInput := s3.GetObjectInput{
+			Bucket: aws.String(sy.source.Host),
+			Key:    object.Key,
+		}
+
+		_, err = sy.downloadManager.Download(theFile, &downloadInput)
+
+		if err != nil {
+			if aerr, ok := err.(awserr.RequestFailure); ok {
+				switch aerr.StatusCode() {
+
+				default:
+					logger.Error(*object.Key)
+					logger.Error(aerr.Error())
+				}
+			} else {
+				// Print the error, cast err to awserr.Error to get the Code and
+				// Message from an error.
+				logger.Error(err.Error())
+			}
+
+		}
+
+		err = theFile.Close()
+		if err != nil {
+			logger.Error(err)
+		}
+		if !sy.quiet {
+			sy.bars.count.IncrInt64(1)
+		}
+		return err
+	}, nil
+}
+
+func (sy *Syncer) syncFromS3() error {
+	defer sy.wg.Done()
+
+	downloadFileFunc, err := sy.downloadObjects()
+
+	if err != nil {
+		return err
+	}
+
+	allThreads := cap(sy.threads)
+	if !sy.quiet {
+		fmt.Printf("0")
+	}
+
+	var basePath string
+	if len(sy.target.Path) != 0 {
+		basePath = sy.target.Path
+		if sy.target.Path[len(sy.target.Path)-1:] != "/" {
+			basePath = basePath + "/"
+		}
+	}
+
+	var total int64 = 1
+	for item := range sy.srcObjects {
+		total = total + int64(len(item))
+		sy.bars.count.SetTotal(total, false)
+
+		for _, object := range item {
+			copyObj := true
+			if details, ok := sy.destMap[basePath+(*object.Key)]; ok {
+				if details.lastModified.After(*object.LastModified) {
+					if *details.size == *object.Size {
+						copyObj = false
+					}
+				}
+			}
+			if copyObj {
+				sy.threads.acquire(1)
+				go downloadFileFunc(object)
+			} else {
+				if !sy.quiet {
+					sy.bars.count.IncrInt64(1)
+				}
+			}
+		}
+
+	}
+
+	sy.threads.acquire(allThreads)
+	sy.bars.count.SetTotal(total-1, true)
+	return nil
+}
+
+func (sy *Syncer) setupBars() *mpb.Progress {
+	sy.wg.Add(1)
+	progress := mpb.New(mpb.WithWaitGroup(&sy.wg))
+
+	sy.bars.count = progress.AddBar(0,
+		mpb.PrependDecorators(
+			// simple name decorator
+			decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
+			decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
+		),
+		mpb.AppendDecorators(
+			// replace empty decorator with "done" message, OnComplete event
+			decor.OnComplete(
+				// Empty decorator
+				decor.Name(""), "Done!",
+			),
+		),
+	)
+
+	return progress
+}
+
 func (sy *Syncer) sync() {
+
+	var progress *mpb.Progress
 
 	if sy.source.Scheme == "s3" && sy.target.Scheme == "s3" {
 
@@ -175,48 +443,16 @@ func (sy *Syncer) sync() {
 		go sy.destLister.ListObjects(false)
 		var wg sync.WaitGroup
 		wg.Add(1)
-		go sy.obj2Map(sy.destObjects, &wg)
+		go sy.obj2Map(&wg)
 
 		//set up the UI bits
-
-		var progress *mpb.Progress
 
 		sy.wg.Add(1)
 
 		if !sy.quiet {
 
-			progress = mpb.New(mpb.WithWaitGroup(&sy.wg))
+			progress = sy.setupBars()
 
-			sy.bars.count = progress.AddBar(0,
-				mpb.PrependDecorators(
-					// simple name decorator
-					decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-				),
-				mpb.AppendDecorators(
-					// replace empt decorator with "done" message, OnComplete event
-					decor.OnComplete(
-						// Empty decorator
-						decor.Name(""), "Done!",
-					),
-				),
-			)
-
-			sy.bars.fileSize = progress.AddBar(0,
-				mpb.PrependDecorators(
-					decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-					decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-				),
-				mpb.AppendDecorators(
-					decor.Percentage(decor.WCSyncWidth),
-					decor.Name(" "),
-					decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-					decor.OnComplete(
-						// Empty decorator
-						decor.Name(""), " Done!",
-					),
-				),
-			)
 			go sy.bars.updateBarListObjects(sy.srcLister.sizeChan, &sy.wg)
 		}
 
@@ -237,68 +473,50 @@ func (sy *Syncer) sync() {
 
 	} else if sy.source.Scheme != "s3" {
 
-		//path, err := filepath.Abs(sy.source.Path)
-		//if err != nil {
-		//	fmt.Printf("The user-provided path %s does not exsit\n", sy.source.Path)
-		//	return
-		//}
-		//info, err := os.Lstat(path)
-		//if err != nil {
-		//	fmt.Printf("The user-provided path %s does not exsit\n", sy.source.Path)
-		//	return
-		//}
-		//if recursive {
-		//	if !info.IsDir() {
-		//		fmt.Printf("The user-provided path %s/ does not exsit\n", sy.source.Path)
-		//		return
-		//	}
-		//
-		//	var progress *mpb.Progress
-		//
-		//	if !sy.quiet {
-		//		go walkFiles(sy.source.Path, sy.files, sy.fileCounter)
-		//		sy.wg.Add(1)
-		//		progress = mpb.New(mpb.WithWaitGroup(&sy.wg))
-		//
-		//		sy.bars.count = progress.AddBar(0,
-		//			mpb.PrependDecorators(
-		//				// simple name decorator
-		//				decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-		//				decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-		//			),
-		//		)
-		//
-		//		sy.bars.fileSize = progress.AddBar(0,
-		//			mpb.PrependDecorators(
-		//				decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-		//				decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-		//			),
-		//			mpb.AppendDecorators(
-		//				decor.Percentage(decor.WCSyncWidth),
-		//				decor.Name(" "),
-		//				decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-		//			),
-		//		)
-		//
-		//		go sy.bars.updateBar(sy.fileCounter, &sy.wg)
-		//
-		//	} else {
-		//		go walkFilesQuiet(sy.source.Path, sy.files)
-		//	}
-		//	sy.wg.Add(1)
-		//	go sy.processFiles()
-		//
-		//	if progress != nil {
-		//		progress.Wait()
-		//	} else {
-		//		// sy.wg.Add(1)
-		//		sy.wg.Wait()
-		//	}
-		//} else if !info.IsDir() {
-		//	// single file copy
-		//	sy.copyFile(sy.source.Path)
-		//
-		//}
+		/// Sync to S3
+
+		// Start listing the destination bucket first thing.  drop the results into a map so we can compare later
+		go sy.destLister.ListObjects(false)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go sy.obj2Map(&wg)
+
+		path, err := filepath.Abs(sy.source.Path)
+		if err != nil {
+			fmt.Printf("The user-provided path %s does not exsit\n", sy.source.Path)
+			return
+		}
+		_, err = os.Lstat(path)
+		if err != nil {
+			fmt.Printf("The user-provided path %s does not exsit\n", sy.source.Path)
+			return
+		}
+
+		var progress *mpb.Progress
+
+		if !sy.quiet {
+			go walkFiles(sy.source.Path, sy.files, sy.fileCounter)
+			sy.wg.Add(1)
+
+			progress = sy.setupBars()
+
+			go sy.bars.updateBar(sy.fileCounter, &sy.wg)
+
+		} else {
+			go walkFilesQuiet(sy.source.Path, sy.files)
+		}
+
+		//wait here until the destination listing is complete
+		wg.Wait()
+
+		sy.syncToS3()
+
+		if progress != nil {
+			progress.Wait()
+		} else {
+			sy.wg.Wait()
+		}
+
 	} else {
 		// Download from S3
 
@@ -318,53 +536,34 @@ func (sy *Syncer) sync() {
 			return
 		}
 
-		//var progress *mpb.Progress
-		//
-		//sy.wg.Add(1)
-		//
-		//withSize := false
-		//
-		//if !sy.quiet {
-		//	withSize = true
-		//	progress = mpb.New(mpb.WithWaitGroup(&sy.wg))
-		//
-		//	sy.bars.count = progress.AddBar(0,
-		//		mpb.PrependDecorators(
-		//			// simple name decorator
-		//			decor.Name("Files", decor.WC{W: 6, C: decor.DSyncWidth}),
-		//			decor.CountersNoUnit(" %d / %d", decor.WCSyncWidth),
-		//		),
-		//	)
-		//
-		//	sy.bars.fileSize = progress.AddBar(0,
-		//		mpb.PrependDecorators(
-		//			decor.Name("Size ", decor.WC{W: 6, C: decor.DSyncWidth}),
-		//			decor.Counters(decor.UnitKB, "% .1f / % .1f", decor.WCSyncWidth),
-		//		),
-		//		mpb.AppendDecorators(
-		//			decor.Percentage(decor.WCSyncWidth),
-		//			decor.Name(" "),
-		//			decor.AverageSpeed(decor.UnitKB, "% .1f", decor.WCSyncWidth),
-		//		),
-		//	)
-		//	go sy.bars.updateBarListObjects(sy.srcLister.sizeChan, &sy.wg)
-		//} else {
-		//	close(sy.sizeChan)
-		//}
-		//// List Objects
-		//go sy.srcLister.ListObjects(withSize)
-		//
-		//sy.downloadAllObjects()
-		//
-		//if progress != nil {
-		//	progress.Wait()
-		//} else {
-		//	sy.wg.Wait()
-		//}
-		//if err != nil {
-		//	fmt.Println(err)
-		//
-		//}
+		go walkFilesQuiet(sy.target.Path, sy.files)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go sy.file2Map(&wg)
+
+		if !sy.quiet {
+			sy.wg.Add(1)
+			progress = sy.setupBars()
+
+		} else {
+			close(sy.sizeChan)
+		}
+		// List Objects
+		go sy.srcLister.ListObjects(false)
+
+		wg.Wait()
+
+		sy.syncFromS3()
+
+		if progress != nil {
+			progress.Wait()
+		} else {
+			sy.wg.Wait()
+		}
+		if err != nil {
+			fmt.Println(err)
+
+		}
 
 	}
 
@@ -372,7 +571,7 @@ func (sy *Syncer) sync() {
 
 // NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy srcObjects in and out of
 // a bucket
-func NewSync(source string, dest string, threads int, quiet bool, sess *session.Session, template s3.CopyObjectInput, destProfile string) (*Syncer, error) {
+func NewSync(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*Syncer, error) {
 
 	var svc, destSvc *s3.S3
 	sourceURL, err := url.Parse(source)
@@ -426,6 +625,8 @@ func NewSync(source string, dest string, threads int, quiet bool, sess *session.
 		svc = destSvc
 	}
 
+	template.Bucket = aws.String(destURL.Host)
+
 	sy := &Syncer{
 		source:          *sourceURL,
 		target:          *destURL,
@@ -441,40 +642,20 @@ func NewSync(source string, dest string, threads int, quiet bool, sess *session.
 		destMap:         make(map[string]objDateSize),
 	}
 
-	//template.Bucket = aws.String(destURL.Host)
-	//
-	//bc := &BucketCopier{
-	//	source:          *sourceURL,
-	//	target:          *destURL,
-	//	quiet:           quiet,
-	//	uploadManager:   *s3manager.NewUploaderWithClient(svc),
-	//	downloadManager: *s3manager.NewDownloaderWithClient(svc),
-	//	svc:             svc,
-	//	destSvc:         destSvc,
-	//	threads:         make(semaphore, threads),
-	//	sizeChan:        make(chan objectCounter, threads),
-	//	wg:              sync.WaitGroup{},
-	//	template:        template,
-	//}
-
 	if destProfile != "" {
 		sy.uploadManager = *s3manager.NewUploaderWithClient(destSvc)
 	}
 
+	sy.files = make(chan fileJob, bigChanSize)
+
 	if sourceURL.Scheme == "s3" {
 		sy.srcLister, err = NewBucketListerWithSvc(source, threads, svc)
-		//if destURL.Scheme == "s3" {
 		sy.srcObjects = make(chan []*s3.Object, threads)
 		sy.srcLister.objects = sy.srcObjects
-		//} else {
-		//sy.versions = make(chan []*s3.ObjectIdentifier, threads)
-		//sy.srcLister.versions = sy.versions
-		//}
-
 		sy.srcLister.threads = threads
 		sy.srcLister.sizeChan = sy.sizeChan
 	} else {
-		sy.files = make(chan fileJob, bigChanSize)
+
 		sy.fileCounter = make(chan int64, threads*2)
 	}
 

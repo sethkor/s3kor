@@ -215,7 +215,7 @@ func main() {
 
 	case syncOp.FullCommand():
 
-		inputTemplate := s3.CopyObjectInput{
+		inputTemplate := s3manager.UploadInput{
 			ACL:                  syncACL,
 			StorageClass:         syncStorageClass,
 			ServerSideEncryption: syncSSE,

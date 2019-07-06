@@ -124,7 +124,6 @@ func (cp *BucketCopier) uploadFile() func(file fileJob) {
 }
 
 func (cp *BucketCopier) processFiles() {
-	defer cp.wg.Done()
 
 	allThreads := cap(cp.threads)
 	uploadFileFunc := cp.uploadFile()
@@ -145,7 +144,9 @@ func (pb copyPb) updateBar(fileSize <-chan int64, wg *sync.WaitGroup) {
 		fileCount++
 		fileSizeTotal += size
 		pb.count.SetTotal(fileCount, false)
-		pb.fileSize.SetTotal(fileSizeTotal, false)
+		if pb.fileSize != nil {
+			pb.fileSize.SetTotal(fileSizeTotal, false)
+		}
 	}
 
 }
@@ -159,7 +160,9 @@ func (pb copyPb) updateBarListObjects(fileSize <-chan objectCounter, wg *sync.Wa
 		fileCount += int64(size.count)
 		fileSizeTotal += size.size
 		pb.count.SetTotal(fileCount, false)
-		pb.fileSize.SetTotal(fileSizeTotal, false)
+		if pb.fileSize != nil {
+			pb.fileSize.SetTotal(fileSizeTotal, false)
+		}
 	}
 }
 
@@ -455,8 +458,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 			} else {
 				go walkFilesQuiet(cp.source.Path, cp.files)
 			}
-			cp.wg.Add(1)
-			go cp.processFiles()
+			cp.processFiles()
 
 			if progress != nil {
 				progress.Wait()
@@ -487,7 +489,7 @@ func (cp *BucketCopier) copy(recursive bool) {
 			return
 		}
 
-		cp.wg.Add(1)
+		//cp.wg.Add(1)
 
 		withSize := false
 

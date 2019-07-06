@@ -31,7 +31,7 @@ The cli emulates the [aws cli s3](https://aws.amazon.com/cli/) commands as close
 - [X] Copy - cp
 - [X] Remove - rm
 - [X] List - ls
-- [ ] Syncronize - sync WIP
+- [X] Syncronize - sync WIP
 
 Use `--help` on the command line to help you along the way.
 
@@ -137,7 +137,7 @@ Defaults to `STANDARD`
       --all-versions     Delete all versions
 ```
 
-It is possible to remove all versions of an object recursivley in a single command which is not possible with the AWS cli
+It is possible to remove all versions of an object recursivley in a single command which is not possible with the AWS cli.
 
 Remember when using `--all-versions` to delete all versions of an object at once, the eventual consistency model of S3 applies.
 
@@ -153,7 +153,30 @@ You can list all versions if you like, the version id is outputted first:
 ```
   
 ## Sync - sync WIP
-This is WIP!  Currently only built and barley tested for S3 to S3 sync
+Features available:
+
+- [X] Sync to S3
+- [X] Sync from S3
+- [X] Sync S3 to S3
+- [ ] Copy S3 to S3 in another account with seperate credentials
+
+Sync only compares mod timestamps and sizes as the only true way to get a MD5 or some other checksum of an S3 object is to download it comletley first.  An objects ETag is not the MD5 of the object.
+
+```
+  -q, --quiet                   Does not display the operations performed from the specified command.
+  -c, --concurrent=50           Maximum number of concurrent uploads to S3.
+      --sse=AES256              Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.
+      --sse-kms-key-id=SSE-KMS-KEY-ID  
+                                The AWS KMS key ID that should be used to server-side encrypt the object in S3.
+      --acl=private             Object ACL
+      --storage-class=STANDARD  Storage Class
+
+Args:
+  <source>       file or s3 location
+  <destination>  file or s3 location
+```
+  
+
 
 
 

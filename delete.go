@@ -117,8 +117,8 @@ func (bd *BucketDeleter) delete(versions bool) {
 		// ensure we have more than just the host in the url
 
 		if bd.source.Path == "" {
-			fmt.Println("Must pass an object in the bucket to remove, not just the bucket name")
-			logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name")
+			fmt.Println("Must pass an object in the bucket to remove, not just the bucket name or use --recursive")
+			logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name or use --recursive")
 		}
 
 		if versions {
