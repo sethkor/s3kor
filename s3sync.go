@@ -445,10 +445,6 @@ func (sy *Syncer) sync() {
 		wg.Add(1)
 		go sy.obj2Map(&wg)
 
-		//set up the UI bits
-
-		sy.wg.Add(1)
-
 		if !sy.quiet {
 
 			progress = sy.setupBars()
@@ -542,7 +538,6 @@ func (sy *Syncer) sync() {
 		go sy.file2Map(&wg)
 
 		if !sy.quiet {
-			sy.wg.Add(1)
 			progress = sy.setupBars()
 
 		} else {
