@@ -205,12 +205,12 @@ func main() {
 			inputTemplate.ServerSideEncryption = cpSSEKMSKeyID
 		}
 
-		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile)
+		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive)
 		if err != nil {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			myCopier.copy(*cpRecursive)
+			myCopier.copy()
 		}
 
 	case syncOp.FullCommand():

@@ -31,7 +31,8 @@ type copyPb struct {
 // BucketCopier stores everything we need to copy srcObjects to or from a bucket
 type BucketCopier struct {
 	source          url.URL
-	target          url.URL
+	dest            url.URL
+	recursive       bool
 	quiet           bool
 	sourceLength    int
 	uploadManager   s3manager.Uploader
@@ -43,11 +44,20 @@ type BucketCopier struct {
 	files           chan fileJob
 	fileCounter     chan int64
 	versions        chan []*s3.ObjectIdentifier
-	objects         chan []*s3.Object
+	srcObjects      chan []*s3.Object
 	sizeChan        chan objectCounter
 	threads         semaphore
 	template        s3manager.UploadInput
-	lister          *BucketLister
+	srcLister       *BucketLister
+}
+
+func (cp *BucketCopier) updateBars(count int64, size int64, timeSince time.Duration) {
+	if !cp.quiet {
+		cp.bars.count.IncrInt64(count)
+		if cp.bars.fileSize != nil {
+			cp.bars.fileSize.IncrInt64(size, timeSince)
+		}
+	}
 }
 
 func (cp *BucketCopier) copyFile(file string) {
@@ -59,7 +69,7 @@ func (cp *BucketCopier) copyFile(file string) {
 	} else {
 		// Upload the file to S3.
 		input := cp.template
-		input.Key = aws.String(cp.target.Path + "/" + file[cp.sourceLength:])
+		input.Key = aws.String(cp.dest.Path + "/" + file[cp.sourceLength:])
 		input.Body = f
 		_, err = cp.uploadManager.Upload(&input)
 
@@ -94,7 +104,7 @@ func (cp *BucketCopier) uploadFile() func(file fileJob) {
 		if file.info.IsDir() {
 			// Don't create a prefix for the base dir
 			if len(file.path) != cp.sourceLength {
-				input.Key = aws.String(cp.target.Path + "/" + file.path[cp.sourceLength:] + "/")
+				input.Key = aws.String(cp.dest.Path + "/" + file.path[cp.sourceLength:] + "/")
 				_, err := cp.uploadManager.Upload(&input)
 
 				if err != nil {
@@ -116,10 +126,7 @@ func (cp *BucketCopier) uploadFile() func(file fileJob) {
 		} else {
 			cp.copyFile(file.path)
 		}
-		if !cp.quiet {
-			cp.bars.count.IncrInt64(1)
-			cp.bars.fileSize.IncrInt64(file.info.Size(), time.Since(start))
-		}
+		cp.updateBars(1, file.info.Size(), time.Since(start))
 	}
 }
 
@@ -174,8 +181,9 @@ func (cp *BucketCopier) downloadObjects() (func(object *s3.Object) error, error)
 
 	return func(object *s3.Object) error {
 		defer cp.threads.release(1)
+		start := time.Now()
 		// Check File path and dir
-		theFilePath := cp.target.Path + theSeparator + *object.Key
+		theFilePath := cp.dest.Path + theSeparator + *object.Key
 
 		theDir := filepath.Dir(theFilePath)
 
@@ -230,10 +238,7 @@ func (cp *BucketCopier) downloadObjects() (func(object *s3.Object) error, error)
 
 		}
 
-		if !cp.quiet {
-			cp.bars.count.Increment()
-			cp.bars.fileSize.IncrInt64(objectSize)
-		}
+		cp.updateBars(1, objectSize, time.Since(start))
 
 		err = theFile.Close()
 		if err != nil {
@@ -257,7 +262,7 @@ func (cp *BucketCopier) downloadAllObjects() error {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
-	for item := range cp.objects {
+	for item := range cp.srcObjects {
 
 		for _, object := range item {
 			cp.threads.acquire(1)
@@ -275,8 +280,8 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 
 	copyTemplate := s3.CopyObjectInput{
 		ACL:                  cp.template.ACL,
-		Bucket:               aws.String(cp.target.Host),
-		Key:                  aws.String(cp.target.Path),
+		Bucket:               aws.String(cp.dest.Host),
+		Key:                  aws.String(cp.dest.Path),
 		ServerSideEncryption: cp.template.ServerSideEncryption,
 	}
 
@@ -287,7 +292,7 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 
 	return func(object *s3.Object) error {
 		defer cp.threads.release(1)
-
+		start := time.Now()
 		copyInput := copyTemplate
 
 		copyInput.CopySource = aws.String(cp.source.Host + "/" + *object.Key)
@@ -295,9 +300,9 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 		if len(cp.source.Path) == 0 {
 			copyInput.Key = object.Key
 		} else if cp.source.Path[len(cp.source.Path)-1:] == "/" {
-			copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key)[len(cp.source.Path)-1:])
+			copyInput.Key = aws.String(cp.dest.Path + "/" + (*object.Key)[len(cp.source.Path)-1:])
 		} else {
-			copyInput.Key = aws.String(cp.target.Path + "/" + (*object.Key))
+			copyInput.Key = aws.String(cp.dest.Path + "/" + (*object.Key))
 		}
 
 		if *object.Size <= MaxCopyPartSize {
@@ -333,10 +338,8 @@ func (cp *BucketCopier) copyObjects() (func(object *s3.Object) error, error) {
 			}
 		}
 
-		if !cp.quiet {
-			cp.bars.count.Increment()
-			cp.bars.fileSize.IncrInt64(*object.Size)
-		}
+		cp.updateBars(1, *object.Size, time.Since(start))
+
 		return nil
 	}, nil
 }
@@ -356,7 +359,7 @@ func (cp *BucketCopier) copyAllObjects() error {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
-	for item := range cp.objects {
+	for item := range cp.srcObjects {
 
 		for _, object := range item {
 			cp.threads.acquire(1)
@@ -370,7 +373,6 @@ func (cp *BucketCopier) copyAllObjects() error {
 }
 
 func (cp *BucketCopier) setupBars() *mpb.Progress {
-	cp.wg.Add(1)
 	progress := mpb.New(mpb.WithWaitGroup(&cp.wg))
 
 	cp.bars.count = progress.AddBar(0,
@@ -407,52 +409,45 @@ func (cp *BucketCopier) setupBars() *mpb.Progress {
 	return progress
 }
 
-func (cp *BucketCopier) copy(recursive bool) {
-
-	var progress *mpb.Progress
-	if cp.source.Scheme == "s3" && cp.target.Scheme == "s3" {
-
-		if !cp.quiet {
-			progress = cp.setupBars()
-			go cp.bars.updateBarListObjects(cp.lister.sizeChan, &cp.wg)
+func (cp *BucketCopier) checkPath(path string) (isDir bool, err error) {
+	absPath, err := filepath.Abs(path)
+	if err == nil {
+		info, err := os.Lstat(absPath)
+		if err == nil {
+			return info.IsDir(), err
 		}
-		// List Objects
-		go cp.lister.ListObjects(true)
+	}
+	errString := "The user-provided path" + cp.dest.Path + "does not exsit"
+	fmt.Println(errString)
+	return false, errors.New(errString)
+}
 
-		if cp.destSvc == nil {
-			cp.copyAllObjects()
-		} else {
-			rp := newRemoteCopier(cp)
-			rp.remoteCopy()
-		}
+func (cp *BucketCopier) copyS3ToS3() error {
+	if !cp.quiet {
+		go cp.bars.updateBarListObjects(cp.srcLister.sizeChan, &cp.wg)
+	}
+	// List Objects
+	go cp.srcLister.ListObjects(true)
 
-		if progress != nil {
-			progress.Wait()
-		} else {
-			cp.wg.Wait()
-		}
+	var err error
+	if cp.destSvc == nil {
+		err = cp.copyAllObjects()
+	} else {
+		rp := newRemoteCopier(cp)
+		err = rp.remoteCopy()
+	}
+	return err
+}
 
-	} else if cp.source.Scheme != "s3" {
+func (cp *BucketCopier) copyFileToS3() error {
+	isDir, err := cp.checkPath(cp.source.Path)
 
-		path, err := filepath.Abs(cp.source.Path)
-		if err != nil {
-			fmt.Printf("The user-provided path %s does not exsit\n", cp.source.Path)
-			return
-		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			fmt.Printf("The user-provided path %s does not exsit\n", cp.source.Path)
-			return
-		}
-		if recursive {
-			if !info.IsDir() {
-				fmt.Printf("The user-provided path %s/ does not exsit\n", cp.source.Path)
-				return
-			}
+	if err == nil {
+
+		if cp.recursive {
 
 			if !cp.quiet {
 				go walkFiles(cp.source.Path, cp.files, cp.fileCounter)
-				progress = cp.setupBars()
 				go cp.bars.updateBar(cp.fileCounter, &cp.wg)
 
 			} else {
@@ -460,67 +455,71 @@ func (cp *BucketCopier) copy(recursive bool) {
 			}
 			cp.processFiles()
 
-			if progress != nil {
-				progress.Wait()
-			} else {
-				cp.wg.Wait()
-			}
-		} else if !info.IsDir() {
+		} else if !isDir {
 			// single file copy
 			cp.copyFile(cp.source.Path)
-
 		}
-	} else {
-		// Download from S3
+	}
+	return err
+}
 
-		path, err := filepath.Abs(cp.target.Path)
-		if err != nil {
-			fmt.Printf("The user-provided path %s does not exsit\n", cp.target.Path)
-			return
-		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			fmt.Printf("The user-provided path %s does not exsit\n", cp.target.Path)
-			return
-		}
+func (cp *BucketCopier) copyS3ToFile() error {
+	_, err := cp.checkPath(cp.dest.Path)
 
-		if !info.IsDir() {
-			fmt.Printf("The user-provided path %s/ does not exsit\n", cp.target.Path)
-			return
-		}
-
-		//cp.wg.Add(1)
+	if err == nil {
 
 		withSize := false
 
 		if !cp.quiet {
 			withSize = true
-			progress = cp.setupBars()
-			go cp.bars.updateBarListObjects(cp.lister.sizeChan, &cp.wg)
+			go cp.bars.updateBarListObjects(cp.srcLister.sizeChan, &cp.wg)
 		} else {
 			close(cp.sizeChan)
 		}
 		// List Objects
-		go cp.lister.ListObjects(withSize)
-		cp.downloadAllObjects()
+		go cp.srcLister.ListObjects(withSize)
+		err = cp.downloadAllObjects()
+	}
+	return err
+}
 
-		if progress != nil {
-			progress.Wait()
-		} else {
-			cp.wg.Wait()
-		}
-		if err != nil {
-			fmt.Println(err)
+func (cp *BucketCopier) copy() error {
 
-		}
+	var progress *mpb.Progress
+	cp.wg.Add(1)
 
+	if !cp.quiet {
+		progress = cp.setupBars()
 	}
 
+	var err error
+
+	if cp.source.Scheme == "s3" && cp.dest.Scheme == "s3" {
+		// S3 to S3
+		err = cp.copyS3ToS3()
+	} else if cp.source.Scheme != "s3" {
+		// Upload to S3
+		err = cp.copyFileToS3()
+	} else {
+		// Download from S3
+		err = cp.copyS3ToFile()
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if progress != nil {
+		progress.Wait()
+	} else {
+		cp.wg.Wait()
+	}
+	return nil
 }
 
 // NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy srcObjects in and out of
 // a bucket
-func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*BucketCopier, error) {
+func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string, recursive bool) (*BucketCopier, error) {
 
 	var svc, destSvc *s3.S3
 	sourceURL, err := url.Parse(source)
@@ -578,7 +577,8 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 
 	bc := &BucketCopier{
 		source:          *sourceURL,
-		target:          *destURL,
+		dest:            *destURL,
+		recursive:       recursive,
 		quiet:           quiet,
 		uploadManager:   *s3manager.NewUploaderWithClient(svc),
 		downloadManager: *s3manager.NewDownloaderWithClient(svc),
@@ -595,16 +595,13 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 	}
 
 	if sourceURL.Scheme == "s3" {
-		bc.lister, err = NewBucketListerWithSvc(source, threads, svc)
-
-		bc.objects = make(chan []*s3.Object, threads)
-		bc.lister.objects = bc.objects
-
+		bc.srcLister, err = NewBucketListerWithSvc(source, threads, svc)
+		bc.srcObjects = make(chan []*s3.Object, threads)
+		bc.srcLister.objects = bc.srcObjects
 		bc.versions = make(chan []*s3.ObjectIdentifier, threads)
-		bc.lister.versions = bc.versions
-
-		bc.lister.threads = threads
-		bc.lister.sizeChan = bc.sizeChan
+		bc.srcLister.versions = bc.versions
+		bc.srcLister.threads = threads
+		bc.srcLister.sizeChan = bc.sizeChan
 	} else {
 		bc.files = make(chan fileJob, bigChanSize)
 		bc.fileCounter = make(chan int64, threads*2)
