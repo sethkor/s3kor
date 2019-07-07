@@ -99,7 +99,7 @@ func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGr
 	cmu.Parts = make([]*s3.CompletedPart, parts)
 
 	input := s3.UploadPartInput{
-		Bucket:   aws.String(rp.cp.target.Host),
+		Bucket:   aws.String(rp.cp.dest.Host),
 		Key:      key,
 		UploadId: uploadId,
 	}
@@ -206,7 +206,7 @@ func (rp *RemoteCopy) copySingleOperationWithDestinationProfile(object *s3.Objec
 
 	// Upload the file to S3.
 	input := rp.cp.template
-	input.Key = aws.String(rp.cp.target.Path + "/" + (*object.Key)[len(rp.cp.source.Path):])
+	input.Key = aws.String(rp.cp.dest.Path + "/" + (*object.Key)[len(rp.cp.source.Path):])
 	input.Body = bytes.NewReader(writeBuffer.Bytes())
 	_, err = rp.cp.uploadManager.Upload(&input)
 
@@ -246,8 +246,8 @@ func (rp *RemoteCopy) remoteCopyObject() (func(object *s3.Object) error, error) 
 		//Create the multipart upload
 		params := &s3.CreateMultipartUploadInput{}
 		awsutil.Copy(params, object)
-		params.Bucket = aws.String(rp.cp.target.Host)
-		params.Key = aws.String(rp.cp.target.Path + "/" + (*object.Key)[len(rp.cp.source.Path):])
+		params.Bucket = aws.String(rp.cp.dest.Host)
+		params.Key = aws.String(rp.cp.dest.Path + "/" + (*object.Key)[len(rp.cp.source.Path):])
 
 		// Create the multipart
 		resp, err := rp.cp.uploadManager.S3.CreateMultipartUpload(params)
@@ -261,7 +261,7 @@ func (rp *RemoteCopy) remoteCopyObject() (func(object *s3.Object) error, error) 
 
 		go rp.downloadChunks(object, chunks)
 
-		err = rp.uploadChunks(params.Bucket, aws.String(rp.cp.target.Path+"/"+(*object.Key)[len(rp.cp.source.Path):]), resp.UploadId, chunks, parts)
+		err = rp.uploadChunks(params.Bucket, aws.String(rp.cp.dest.Path+"/"+(*object.Key)[len(rp.cp.source.Path):]), resp.UploadId, chunks, parts)
 
 		return err
 	}, nil
@@ -282,7 +282,7 @@ func (rp *RemoteCopy) remoteCopy() error {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
-	for item := range rp.cp.objects {
+	for item := range rp.cp.srcObjects {
 
 		for _, object := range item {
 			rp.cp.threads.acquire(1)
