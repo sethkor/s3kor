@@ -435,6 +435,7 @@ func (cp *BucketCopier) copyS3ToS3() error {
 	} else {
 		rp := newRemoteCopier(cp)
 		err = rp.remoteCopy()
+		cp.wg.Done()
 	}
 	return err
 }

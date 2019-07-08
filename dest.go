@@ -268,8 +268,6 @@ func (rp *remoteCopy) remoteCopyObject(object *s3.Object) error {
 }
 
 func (rp *remoteCopy) remoteCopy() error {
-	defer rp.wg.Done()
-
 	allThreads := cap(rp.threads)
 	if !rp.quiet {
 		fmt.Printf("0")
