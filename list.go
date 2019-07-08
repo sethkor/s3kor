@@ -186,6 +186,7 @@ func (bl *BucketLister) ListObjects(withSize bool) {
 			// Message from an error.
 			logger.Fatal(err.Error())
 		}
+		fmt.Println(err)
 		return
 	}
 }
