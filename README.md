@@ -31,7 +31,7 @@ The cli emulates the [aws cli s3](https://aws.amazon.com/cli/) commands as close
 - [X] Copy - cp
 - [X] Remove - rm
 - [X] List - ls
-- [X] Syncronize - sync WIP
+- [X] Syncronize - sync
 
 Use `--help` on the command line to help you along the way.
 
