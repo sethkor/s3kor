@@ -1,5 +1,5 @@
 # s3kor
-Fast AWS S3 command line tools built in [Go](https://golang.org/) using multiparts and multiple threads for fast parallel actions like copy, list and remove to AWS S3.  It's intended as a drop in replacement for the [aws cli s3](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html) set of commands so all flags, values and args should be the same with the exception of a few new ones.
+Fast AWS S3 command line tools built in [Go](https://golang.org/) using multiparts and multiple threads for fast parallel actions like copy, list and remove to AWS S3.  Also supported is copying or syncing to a destination bucket with a seperate set of credentials which is not a feature of the aws cli.  It's intended as a drop in replacement for the [aws cli s3](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html) set of commands so all flags, values and args should be the same with the exception of a few new ones.
 
 Easiest way to install if you're on a Mac or Linux (amd64 or arm64)  is to use [Homebrew](https://brew.sh/)
 
@@ -152,13 +152,13 @@ You can list all versions if you like, the version id is outputted first:
       --all-versions     List all versions
 ```
   
-## Sync - sync WIP
+## Sync
 Features available:
 
 - [X] Sync to S3
 - [X] Sync from S3
 - [X] Sync S3 to S3
-- [ ] Copy S3 to S3 in another account with seperate credentials
+- [X] Copy S3 to S3 in another account with seperate credentials
 
 Sync only compares mod timestamps and sizes as the only true way to get a MD5 or some other checksum of an S3 object is to download it comletley first.  An objects ETag is not the MD5 of the object.
 
@@ -170,7 +170,9 @@ Sync only compares mod timestamps and sizes as the only true way to get a MD5 or
                                 The AWS KMS key ID that should be used to server-side encrypt the object in S3.
       --acl=private             Object ACL
       --storage-class=STANDARD  Storage Class
-
+      --dest-profile=DEST-PROFILE  
+                                Destination bucket AWS credentials/config file profile to use if different from --profile
+                                
 Args:
   <source>       file or s3 location
   <destination>  file or s3 location
