@@ -73,6 +73,8 @@ func (sy *Syncer) syncS3ToS3() error {
 	}
 	allThreads := cap(sy.threads)
 
+	rp := newRemoteCopier(sy.BucketCopier)
+
 	//wait here until the destination listing is complete
 	wg.Wait()
 
@@ -87,7 +89,12 @@ func (sy *Syncer) syncS3ToS3() error {
 			}
 			if copyObj {
 				sy.threads.acquire(1)
-				go copyObjectsFunc(object)
+				if sy.destSvc == nil {
+					go copyObjectsFunc(object)
+				} else {
+					go rp.remoteCopyObject(object)
+				}
+
 			} else {
 				if !sy.quiet {
 					sy.bars.count.Increment()
@@ -219,6 +226,10 @@ func (sy *Syncer) syncS3ToFile() error {
 
 	syncObjToFileFunc, err := sy.syncObjToFile()
 
+	if err != nil {
+		return err
+	}
+
 	wg.Wait()
 
 	for item := range sy.srcObjects {
@@ -325,7 +336,7 @@ func NewSync(source string, dest string, threads int, quiet bool, sess *session.
 
 	// Thee attributes are specific to a syncer
 	if sy.dest.Scheme == "s3" {
-		sy.destLister, err = NewBucketListerWithSvc(dest, threads, sy.svc)
+		sy.destLister, err = NewBucketListerWithSvc(dest, threads, sy.destSvc)
 		if err != nil {
 			return nil, err
 		}

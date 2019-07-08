@@ -28,20 +28,20 @@ type chunk struct {
 
 var chunkThreads = make(semaphore, 20)
 
-type RemoteCopy struct {
-	cp          *BucketCopier
+type remoteCopy struct {
+	*BucketCopier
 	chunkThread semaphore
 	wg          sync.WaitGroup
 }
 
-func (rp *RemoteCopy) downloadChunks(object *s3.Object, chunks chan chunk) error {
+func (rp *remoteCopy) downloadChunks(object *s3.Object, chunks chan chunk) error {
 	var logger = zap.S()
 
 	var first int64
 	last := chunkSize
 
 	downloadInput := s3.GetObjectInput{
-		Bucket: aws.String(rp.cp.source.Host),
+		Bucket: aws.String(rp.source.Host),
 		Key:    object.Key,
 	}
 
@@ -56,7 +56,7 @@ func (rp *RemoteCopy) downloadChunks(object *s3.Object, chunks chan chunk) error
 
 		chunkThreads.acquire(1)
 
-		resp, err := rp.cp.downloadManager.S3.GetObject(&downloadInput)
+		resp, err := rp.downloadManager.S3.GetObject(&downloadInput)
 
 		if err != nil {
 			if aerr, ok := err.(awserr.RequestFailure); ok {
@@ -92,23 +92,23 @@ func (rp *RemoteCopy) downloadChunks(object *s3.Object, chunks chan chunk) error
 	return nil
 }
 
-func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGroup, parts int64) (func(chunk chunk), s3.CompletedMultipartUpload) {
+func (rp *remoteCopy) uploadChunk(key *string, uploadID *string, wg *sync.WaitGroup, parts int64) (func(chunk chunk), s3.CompletedMultipartUpload) {
 	var logger = zap.S()
 
 	var cmu s3.CompletedMultipartUpload
 	cmu.Parts = make([]*s3.CompletedPart, parts)
 
 	input := s3.UploadPartInput{
-		Bucket:   aws.String(rp.cp.dest.Host),
+		Bucket:   aws.String(rp.dest.Host),
 		Key:      key,
-		UploadId: uploadId,
+		UploadId: uploadID,
 	}
 
 	return func(chunk chunk) {
 		defer wg.Done()
 
-		bufferLength := (chunk.finish - chunk.start) + 1
-		buffer := make([]byte, bufferLength)
+		//bufferLength := (chunk.finish - chunk.start) + 1
+		//buffer := make([]byte, bufferLength)
 
 		buffer, err := ioutil.ReadAll(chunk.buffer)
 
@@ -117,7 +117,7 @@ func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGr
 		input.Body = writer
 		input.PartNumber = aws.Int64(chunk.num)
 
-		resp, err := rp.cp.uploadManager.S3.UploadPart(&input)
+		resp, err := rp.uploadManager.S3.UploadPart(&input)
 
 		chunkThreads.release(1)
 		cmu.Parts[chunk.num-1] = &s3.CompletedPart{
@@ -139,18 +139,18 @@ func (rp *RemoteCopy) uploadChunk(key *string, uploadId *string, wg *sync.WaitGr
 
 		}
 
-		if !rp.cp.quiet {
-			rp.cp.bars.fileSize.IncrInt64(bufferLength)
+		if !rp.quiet && rp.bars.fileSize != nil {
+			rp.bars.fileSize.IncrInt64((chunk.finish - chunk.start) + 1)
 		}
 
 	}, cmu
 }
 
 //
-func (rp *RemoteCopy) uploadChunks(bucket *string, key *string, uploadId *string, chunks chan chunk, parts int64) error {
+func (rp *remoteCopy) uploadChunks(bucket *string, key *string, uploadID *string, chunks chan chunk, parts int64) error {
 
 	var wg sync.WaitGroup
-	uploadChunkFunc, cmu := rp.uploadChunk(key, uploadId, &wg, parts)
+	uploadChunkFunc, cmu := rp.uploadChunk(key, uploadID, &wg, parts)
 
 	for chunk := range chunks {
 		wg.Add(1)
@@ -158,33 +158,33 @@ func (rp *RemoteCopy) uploadChunks(bucket *string, key *string, uploadId *string
 	}
 
 	wg.Wait()
-	_, err := rp.cp.uploadManager.S3.CompleteMultipartUpload(&s3.CompleteMultipartUploadInput{
+	_, err := rp.uploadManager.S3.CompleteMultipartUpload(&s3.CompleteMultipartUploadInput{
 		MultipartUpload: &cmu,
 		Bucket:          bucket,
 		Key:             key,
-		UploadId:        uploadId,
+		UploadId:        uploadID,
 	})
 
-	if !rp.cp.quiet {
-		rp.cp.bars.count.Increment()
+	if !rp.quiet {
+		rp.bars.count.Increment()
 	}
 
 	return err
 
 }
 
-func (rp *RemoteCopy) copySingleOperationWithDestinationProfile(object *s3.Object) error {
+func (rp *remoteCopy) copySingleOperationWithDestinationProfile(object *s3.Object) error {
 	var logger = zap.S()
 
 	downloadInput := s3.GetObjectInput{
-		Bucket: aws.String(rp.cp.source.Host),
+		Bucket: aws.String(rp.source.Host),
 		Key:    object.Key,
 	}
 
 	buffer := make([]byte, *object.Size)
 	writeBuffer := aws.NewWriteAtBuffer(buffer)
 
-	_, err := rp.cp.downloadManager.Download(writeBuffer, &downloadInput)
+	_, err := rp.downloadManager.Download(writeBuffer, &downloadInput)
 
 	if err != nil {
 		if aerr, ok := err.(awserr.RequestFailure); ok {
@@ -205,10 +205,10 @@ func (rp *RemoteCopy) copySingleOperationWithDestinationProfile(object *s3.Objec
 	}
 
 	// Upload the file to S3.
-	input := rp.cp.template
-	input.Key = aws.String(rp.cp.dest.Path + "/" + (*object.Key)[len(rp.cp.source.Path):])
+	input := rp.template
+	input.Key = aws.String(rp.dest.Path + "/" + (*object.Key)[len(rp.source.Path):])
 	input.Body = bytes.NewReader(writeBuffer.Bytes())
-	_, err = rp.cp.uploadManager.Upload(&input)
+	_, err = rp.uploadManager.Upload(&input)
 
 	if err != nil {
 
@@ -224,82 +224,77 @@ func (rp *RemoteCopy) copySingleOperationWithDestinationProfile(object *s3.Objec
 
 	}
 
-	if !rp.cp.quiet {
-		rp.cp.bars.count.Increment()
-		rp.cp.bars.fileSize.IncrInt64(*object.Size)
+	if !rp.quiet {
+		rp.bars.count.Increment()
+		if rp.bars.fileSize != nil {
+			rp.bars.fileSize.IncrInt64(*object.Size)
+		}
 	}
 	return nil
 }
 
-func (rp *RemoteCopy) remoteCopyObject() (func(object *s3.Object) error, error) {
+func (rp *remoteCopy) remoteCopyObject(object *s3.Object) error {
 
-	return func(object *s3.Object) error {
-		defer rp.cp.threads.release(1)
+	defer rp.threads.release(1)
 
-		if *object.Size <= chunkSize {
-			chunkThreads.acquire(1)
-			err := rp.copySingleOperationWithDestinationProfile(object)
-			chunkThreads.release(1)
-			return err
-		}
-
-		//Create the multipart upload
-		params := &s3.CreateMultipartUploadInput{}
-		awsutil.Copy(params, object)
-		params.Bucket = aws.String(rp.cp.dest.Host)
-		params.Key = aws.String(rp.cp.dest.Path + "/" + (*object.Key)[len(rp.cp.source.Path):])
-
-		// Create the multipart
-		resp, err := rp.cp.uploadManager.S3.CreateMultipartUpload(params)
-		if err != nil {
-			return err
-		}
-
-		parts := ((*object.Size) / chunkSize) + 1
-
-		chunks := make(chan chunk, 20)
-
-		go rp.downloadChunks(object, chunks)
-
-		err = rp.uploadChunks(params.Bucket, aws.String(rp.cp.dest.Path+"/"+(*object.Key)[len(rp.cp.source.Path):]), resp.UploadId, chunks, parts)
-
+	if *object.Size <= chunkSize {
+		chunkThreads.acquire(1)
+		err := rp.copySingleOperationWithDestinationProfile(object)
+		chunkThreads.release(1)
 		return err
-	}, nil
-}
+	}
 
-func (rp *RemoteCopy) remoteCopy() error {
-	defer rp.cp.wg.Done()
+	//Create the multipart upload
+	params := &s3.CreateMultipartUploadInput{}
+	awsutil.Copy(params, object)
+	params.Bucket = aws.String(rp.dest.Host)
+	params.Key = aws.String(rp.dest.Path + "/" + (*object.Key)[len(rp.source.Path):])
 
-	copyObjectsFunc, err := rp.remoteCopyObject()
-
+	// Create the multipart
+	resp, err := rp.uploadManager.S3.CreateMultipartUpload(params)
 	if err != nil {
 		return err
 	}
-	allThreads := cap(rp.cp.threads)
-	if !rp.cp.quiet {
+
+	parts := ((*object.Size) / chunkSize) + 1
+
+	chunks := make(chan chunk, 20)
+
+	go rp.downloadChunks(object, chunks)
+
+	err = rp.uploadChunks(params.Bucket, aws.String(rp.dest.Path+"/"+(*object.Key)[len(rp.source.Path):]), resp.UploadId, chunks, parts)
+
+	return err
+}
+
+func (rp *remoteCopy) remoteCopy() error {
+	defer rp.wg.Done()
+
+	allThreads := cap(rp.threads)
+	if !rp.quiet {
 		fmt.Printf("0")
 	}
 
 	//we need one thread to update the progress bar and another to do the downloads
 
-	for item := range rp.cp.srcObjects {
+	for item := range rp.srcObjects {
 
 		for _, object := range item {
-			rp.cp.threads.acquire(1)
-			go copyObjectsFunc(object)
+			rp.threads.acquire(1)
+			go rp.remoteCopyObject(object)
 			runtime.GC()
 		}
 
 	}
-	rp.cp.threads.acquire(allThreads)
+	rp.threads.acquire(allThreads)
 
 	return nil
 }
 
-func newRemoteCopier(cp *BucketCopier) *RemoteCopy {
-	return &RemoteCopy{
-		cp:          cp,
-		chunkThread: make(semaphore, 20),
+func newRemoteCopier(cp *BucketCopier) *remoteCopy {
+	return &remoteCopy{
+		BucketCopier: cp,
+		chunkThread:  make(semaphore, 20),
 	}
 
 }

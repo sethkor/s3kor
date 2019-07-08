@@ -81,6 +81,7 @@ var (
 		s3.StorageClassOnezoneIa,
 		s3.StorageClassReducedRedundancy,
 		s3.StorageClassIntelligentTiering)
+	syncDestProfile = syncOp.Flag("dest-profile", "Destination bucket AWS credentials/config file profile to use if different from --profile").String()
 )
 
 //version variable which can be overidden at compile time
@@ -210,7 +211,7 @@ func main() {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			myCopier.copy()
+			err = myCopier.copy()
 		}
 
 	case syncOp.FullCommand():
@@ -225,12 +226,12 @@ func main() {
 			inputTemplate.ServerSideEncryption = syncSSEKMSKeyID
 		}
 
-		syncer, err := NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *cpDestProfile)
+		syncer, err := NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile)
 		if err != nil {
 			fmt.Println(err.Error())
 			logger.Fatal(err.Error())
 		} else {
-			syncer.sync()
+			err = syncer.sync()
 		}
 	}
 
