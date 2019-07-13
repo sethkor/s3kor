@@ -13,8 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-// Syncer stores everything we need to sync srcObjects to or from a bucket
-type Syncer struct {
+// BucketSyncer stores everything we need to sync srcObjects to or from a bucket
+type BucketSyncer struct {
 	*BucketCopier // we reuse a lot of the BucketCopier structs and methods to get things done
 	destObjects   chan []*s3.Object
 	destLister    *BucketLister
@@ -29,7 +29,7 @@ type objDateSize struct {
 
 // obj2Map takes the result of listing objects in S3 and places them into the destmap so that they can be compared
 // with the source of the sync
-func (sy *Syncer) obj2Map(wg *sync.WaitGroup) {
+func (sy *BucketSyncer) obj2Map(wg *sync.WaitGroup) {
 	defer wg.Done()
 	for objSlice := range sy.destObjects {
 		for _, obj := range objSlice {
@@ -40,7 +40,7 @@ func (sy *Syncer) obj2Map(wg *sync.WaitGroup) {
 
 // file2Map takes the result of a file walk places them into the destmap so that they can be compared
 // with the source of the sync
-func (sy *Syncer) file2Map(wg *sync.WaitGroup) {
+func (sy *BucketSyncer) file2Map(wg *sync.WaitGroup) {
 	defer wg.Done()
 	for file := range sy.files {
 		modTime := file.info.ModTime()
@@ -49,31 +49,28 @@ func (sy *Syncer) file2Map(wg *sync.WaitGroup) {
 	}
 }
 
-func (sy *Syncer) syncS3ToS3() error {
+func (sy *BucketSyncer) syncS3ToS3() {
 	defer sy.wg.Done()
 
 	// Start listing the destination bucket first thing.  drop the results into a map so we can compare later
-	go sy.destLister.ListObjects(false)
+	go sy.destLister.listObjects(false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go sy.obj2Map(&wg)
 
 	if !sy.quiet {
 
-		go sy.bars.updateBarListObjects(sy.srcLister.sizeChan, &sy.wg)
+		go sy.bars.updateBarListObjects(sy.srcLister.sizeChan)
 	}
 
 	//list the source objects now, these drive the UI
-	go sy.srcLister.ListObjects(true)
+	go sy.srcLister.listObjects(true)
 
-	copyObjectsFunc, err := sy.copyObjects()
+	copyObjectsFunc := sy.copyObjects()
 
-	if err != nil {
-		return err
-	}
 	allThreads := cap(sy.threads)
 
-	rp := newRemoteCopier(sy.BucketCopier)
+	rp := newRemoteCopier(sy.BucketCopier, nil)
 
 	//wait here until the destination listing is complete
 	wg.Wait()
@@ -104,14 +101,13 @@ func (sy *Syncer) syncS3ToS3() error {
 	}
 	sy.threads.acquire(allThreads)
 
-	return nil
 }
 
-func (sy *Syncer) syncFileToS3() error {
+func (sy *BucketSyncer) syncFileToS3() error {
 	defer sy.wg.Done()
 
 	// Start listing the destination bucket first thing.  Drop the results into a map so we can compare later
-	go sy.destLister.ListObjects(false)
+	go sy.destLister.listObjects(false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go sy.obj2Map(&wg)
@@ -126,7 +122,7 @@ func (sy *Syncer) syncFileToS3() error {
 		go walkFiles(sy.source.Path, sy.files, sy.fileCounter)
 		sy.wg.Add(1)
 
-		go sy.bars.updateBar(sy.fileCounter, &sy.wg)
+		go sy.bars.updateBar(sy.fileCounter)
 
 	} else {
 		go walkFilesQuiet(sy.source.Path, sy.files)
@@ -161,13 +157,9 @@ func (sy *Syncer) syncFileToS3() error {
 	return nil
 }
 
-func (sy *Syncer) syncObjToFile() (func(item []*s3.Object), error) {
+func (sy *BucketSyncer) syncObjToFile() func(item []*s3.Object) {
 
-	downloadFileFunc, err := sy.downloadObjects()
-
-	if err != nil {
-		return nil, err
-	}
+	downloadFileFunc := sy.downloadObjects()
 
 	var basePath string
 	if len(sy.dest.Path) != 0 {
@@ -197,10 +189,10 @@ func (sy *Syncer) syncObjToFile() (func(item []*s3.Object), error) {
 				}
 			}
 		}
-	}, nil
+	}
 }
 
-func (sy *Syncer) syncS3ToFile() error {
+func (sy *BucketSyncer) syncS3ToFile() error {
 	defer sy.wg.Done()
 
 	_, err := sy.checkPath(sy.dest.Path)
@@ -218,17 +210,13 @@ func (sy *Syncer) syncS3ToFile() error {
 	}
 
 	// List Objects
-	go sy.srcLister.ListObjects(false)
+	go sy.srcLister.listObjects(false)
 
 	allThreads := cap(sy.threads)
 
 	var total int64 = 1
 
-	syncObjToFileFunc, err := sy.syncObjToFile()
-
-	if err != nil {
-		return err
-	}
+	syncObjToFileFunc := sy.syncObjToFile()
 
 	wg.Wait()
 
@@ -251,7 +239,7 @@ func (sy *Syncer) syncS3ToFile() error {
 	return nil
 }
 
-func (sy *Syncer) setupBars() *mpb.Progress {
+func (sy *BucketSyncer) setupBars() *mpb.Progress {
 	progress := mpb.New(mpb.WithWaitGroup(&sy.wg))
 
 	sy.bars.count = progress.AddBar(0,
@@ -272,7 +260,7 @@ func (sy *Syncer) setupBars() *mpb.Progress {
 	return progress
 }
 
-func (sy *Syncer) sync() error {
+func (sy *BucketSyncer) sync() error {
 
 	var progress *mpb.Progress
 	sy.wg.Add(1)
@@ -284,7 +272,7 @@ func (sy *Syncer) sync() error {
 	var err error
 	if sy.source.Scheme == "s3" && sy.dest.Scheme == "s3" {
 		//S3 to S3
-		err = sy.syncS3ToS3()
+		sy.syncS3ToS3()
 
 	} else if sy.source.Scheme != "s3" {
 		/// Sync to S3
@@ -305,11 +293,11 @@ func (sy *Syncer) sync() error {
 	return nil
 }
 
-// NewSync creates a new Syncer struct initialized with all variables needed to sync files and objects in and out of
+// NewSync creates a new BucketSyncer struct initialized with all variables needed to sync files and objects in and out of
 // a bucket
-func NewSync(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*Syncer, error) {
+func NewSync(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*BucketSyncer, error) {
 
-	sy := &Syncer{
+	sy := &BucketSyncer{
 		destMap: make(map[string]objDateSize),
 	}
 
@@ -336,7 +324,7 @@ func NewSync(source string, dest string, threads int, quiet bool, sess *session.
 
 	// Thee attributes are specific to a syncer
 	if sy.dest.Scheme == "s3" {
-		sy.destLister, err = NewBucketListerWithSvc(dest, threads, sy.destSvc)
+		sy.destLister, err = NewBucketListerWithSvc(dest, false, threads, sy.destSvc)
 		if err != nil {
 			return nil, err
 		}

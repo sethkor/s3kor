@@ -30,6 +30,7 @@ var (
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
 	rmAllVersions = rm.Flag("all-versions", "Delete all versions and delete markers").Default("false").Bool()
+	rmMultiParts  = rm.Flag("multi-part", "Abort all inprogress multipart uploads WIP").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
 
 	ls            = app.Command("ls", "list")
@@ -138,19 +139,7 @@ func setUpLogger() {
 
 }
 
-func main() {
-	//Lets keep a track on how long things are taking us
-	//startTime := time.Now()
-
-	//Parse args and flags passed to us
-	app.Version(version)
-	kingpin.CommandLine.HelpFlag.Short('h')
-
-	command := kingpin.MustParse(app.Parse(os.Args[1:]))
-
-	setUpLogger()
-	logger := zap.S()
-
+func getAwsSession() *session.Session {
 	var sess *session.Session
 	if *pProfile != "" {
 
@@ -176,24 +165,30 @@ func main() {
 	if *pRegion != "" {
 		sess.Config.Region = aws.String(*pRegion)
 	}
+	return sess
+}
+
+func switchCommand() error {
+	var err error
+
+	command := kingpin.MustParse(app.Parse(os.Args[1:]))
+	sess := getAwsSession()
 
 	switch command {
 	case rm.FullCommand():
-		deleter, err := NewBucketDeleter(*rmPath, *rmQuiet, 50, *rmAllVersions, *rmRecursive, sess)
-		if err != nil {
-			fmt.Println(err.Error())
-			logger.Fatal(err.Error())
-		} else {
-			deleter.delete(*rmAllVersions)
+		var deleter *BucketDeleter
+		deleter, err = NewBucketDeleter(*rmPath, *rmQuiet, 50, *rmAllVersions, *rmRecursive, *rmMultiParts, sess)
+		if err == nil {
+			err = deleter.delete()
 		}
+
 	case ls.FullCommand():
-		lister, err := NewBucketLister(*lsPath, 50, sess)
-		if err != nil {
-			fmt.Println(err.Error())
-			logger.Fatal(err.Error())
-		} else {
-			lister.List(*lsAllVersions)
+		var lister *BucketLister
+		lister, err = NewBucketLister(*lsPath, *lsAllVersions, 50, sess)
+		if err == nil {
+			err = lister.List(*lsAllVersions)
 		}
+
 	case cp.FullCommand():
 
 		inputTemplate := s3manager.UploadInput{
@@ -205,13 +200,10 @@ func main() {
 		if *cpSSEKMSKeyID != "" {
 			inputTemplate.ServerSideEncryption = cpSSEKMSKeyID
 		}
-
-		myCopier, err := NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive)
-		if err != nil {
-			fmt.Println(err.Error())
-			logger.Fatal(err.Error())
-		} else {
-			err = myCopier.copy()
+		var copier *BucketCopier
+		copier, err = NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive)
+		if err == nil {
+			err = copier.copy()
 		}
 
 	case syncOp.FullCommand():
@@ -225,14 +217,31 @@ func main() {
 		if *syncSSEKMSKeyID != "" {
 			inputTemplate.ServerSideEncryption = syncSSEKMSKeyID
 		}
+		var syncer *BucketSyncer
 
-		syncer, err := NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile)
-		if err != nil {
-			fmt.Println(err.Error())
-			logger.Fatal(err.Error())
-		} else {
+		syncer, err = NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile)
+		if err == nil {
 			err = syncer.sync()
 		}
+
+	}
+	return err
+}
+
+func main() {
+
+	setUpLogger()
+	logger := zap.S()
+
+	//Parse args and flags passed to us
+	app.Version(version)
+	kingpin.CommandLine.HelpFlag.Short('h')
+
+	err := switchCommand()
+
+	if err != nil {
+		fmt.Println(err.Error())
+		logger.Fatal(err.Error())
 	}
 
 }
