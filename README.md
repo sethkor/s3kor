@@ -118,7 +118,7 @@ Multipart chunks size for Upload or Download is set to 5MB.  Any objects greater
 The progress bar is not aware of multipart operations for now.  It will only update once a large object operation is complete.
 
 ### S3 to S3 Large objects over 5GB
-Large objects S3 to S3 are supported.  Since this happens in the AWS backend, the part size for these operations is set to 5GB for maximum performance.  `s3kor` will copy up to 5 parts concurrently for per object.
+Large objects S3 to S3 are supported.  Since this happens in the AWS backend, the part size for these operations is set to 5GB for maximum performance.  `s3kor` will copy up to 5 parts concurrently per object.
 
 ### ACL
 Sets the ACL for the object when the command is performed. If you use this parameter you must have the "s3:PutObjectAcl" permission included in the list of actions for your IAM policy.  Only accepts values of `private`, `public-read`, `public-read-write`, `authenticated-read`, `aws-exec-read`, `bucket-owner-read`, `bucket-owner-full-control` and `log-delivery-write`
@@ -135,6 +135,7 @@ Defaults to `STANDARD`
   -q, --quiet            Does not display the operations performed from the specified command.
   -r, --recursive        Recurisvley delete
       --all-versions     Delete all versions
+      --multi-part       Abort all inprogress multipart uploads
 ```
 
 It is possible to remove all versions of an object recursivley in a single command which is not possible with the AWS cli.

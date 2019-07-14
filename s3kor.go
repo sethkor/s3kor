@@ -30,7 +30,7 @@ var (
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	rmRecursive   = rm.Flag("recursive", "Recurisvley delete").Short('r').Default("false").Bool()
 	rmAllVersions = rm.Flag("all-versions", "Delete all versions and delete markers").Default("false").Bool()
-	rmMultiParts  = rm.Flag("multi-part", "Abort all inprogress multipart uploads WIP").Default("false").Bool()
+	rmMultiParts  = rm.Flag("multi-part", "Abort all inprogress multipart uploads").Default("false").Bool()
 	rmPath        = rm.Arg("S3Uri", "S3 URL").Required().String()
 
 	ls            = app.Command("ls", "list")
