@@ -4,32 +4,66 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"go.uber.org/zap"
 )
+
+type deleteError struct {
+	error             error
+	deleteObjectInput *s3.DeleteObjectsInput
+}
+
+type deleteErrorList struct {
+	errorList []deleteError
+}
 
 // BucketDeleter stores everything we need to delete srcObjects in a bucket
 type BucketDeleter struct {
 	source    url.URL
 	quiet     bool
 	recursive bool
-	//versions    bool
-	total    int64
-	objects  chan []*s3.Object
-	versions chan []*s3.ObjectIdentifier
-	wg       sync.WaitGroup
-	svc      *s3.S3
-	lister   *BucketLister
+	multiPart bool
+	total     int64
+	objects   chan []*s3.Object
+	versions  chan []*s3.ObjectIdentifier
+	wg        sync.WaitGroup
+	ewg       sync.WaitGroup
+	svc       *s3.S3
+	lister    *BucketLister
+	errors    chan deleteError
+	errorList deleteErrorList
+}
+
+func (de deleteError) Error() string {
+	return de.error.Error()
+}
+
+func (del deleteErrorList) Error() string {
+	if len(del.errorList) > 0 {
+		out := make([]string, len(del.errorList))
+		for i, err := range del.errorList {
+			out[i] = err.Error()
+		}
+		return strings.Join(out, "\n")
+	}
+	return ""
+}
+
+// collectErrors processes any any errors passed via the error channel
+// and stores them in the errorList
+func (bd *BucketDeleter) collectErrors() {
+	defer bd.ewg.Done()
+	for err := range bd.errors {
+		bd.errorList.errorList = append(bd.errorList.errorList, err)
+	}
 }
 
 func (bd *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) {
-	var logger = zap.S()
 	return func(item []*s3.ObjectIdentifier) {
 		defer bd.wg.Done()
 
@@ -44,32 +78,26 @@ func (bd *BucketDeleter) deleteObjects() func(item []*s3.ObjectIdentifier) {
 
 		atomic.AddInt64(&bd.total, int64((len(item))))
 		if !bd.quiet {
-			fmt.Printf("\r%d", bd.total)
+			fmt.Printf("\r%d Deleted", bd.total)
 		}
 
 		if err != nil {
-			if aerr, ok := err.(awserr.RequestFailure); ok {
-				switch aerr.StatusCode() {
-
-				default:
-					logger.Error(*deleteInput.Delete)
-					logger.Error(aerr.Error())
-				}
-			} else {
-				// Print the error, cast err to awserr.Error to get the Code and
-				// Message from an error.
-				logger.Error(err.Error())
+			bd.errors <- deleteError{
+				error:             err,
+				deleteObjectInput: &deleteInput,
 			}
-			return
 		}
+
 	}
 }
 
 func (bd *BucketDeleter) deleteAllObjects(versions bool) {
 	deleteObjectsFunc := bd.deleteObjects()
 	if !bd.quiet {
-		fmt.Printf("0")
+		fmt.Printf("0 Deleted")
 	}
+
+	bd.ewg.Add(1) // a separate error waitgroup so we wait until all errors are reported before exiting
 
 	if versions {
 		for item := range bd.versions {
@@ -96,63 +124,87 @@ func (bd *BucketDeleter) deleteAllObjects(versions bool) {
 	if !bd.quiet {
 		fmt.Printf("\n")
 	}
+	close(bd.errors)
+
 }
 
-func (bd *BucketDeleter) delete(versions bool) {
-	var logger = zap.S()
+func (bd *BucketDeleter) abortMultiPartUploads() {
+	defer bd.wg.Done()
+	err := bd.svc.ListMultipartUploadsPages(&s3.ListMultipartUploadsInput{
+		Bucket: aws.String(bd.source.Host),
+	}, func(result *s3.ListMultipartUploadsOutput, lastPage bool) bool {
 
-	if bd.recursive {
-
-		if versions {
-			go bd.lister.listObjectVersions(false)
-		} else {
-
-			go bd.lister.ListObjects(false)
-		}
-
-		bd.deleteAllObjects(versions)
-
-	} else {
-		// we are only deleting a single object
-		// ensure we have more than just the host in the url
-
-		if bd.source.Path == "" {
-			fmt.Println("Must pass an object in the bucket to remove, not just the bucket name or use --recursive")
-			logger.Fatal("Must pass an object in the bucket to remove, not just the bucket name or use --recursive")
-		}
-
-		if versions {
-			// we want to delete all versions of the object specified
-
-			go bd.lister.listObjectVersions(true)
-
-		} else {
-			_, err := bd.svc.DeleteObject(&s3.DeleteObjectInput{
-				Bucket: aws.String(bd.source.Host),
-				Key:    aws.String(bd.source.Path[1:]),
+		for _, upload := range result.Uploads {
+			_, err := bd.svc.AbortMultipartUpload(&s3.AbortMultipartUploadInput{
+				Bucket:   result.Bucket,
+				Key:      upload.Key,
+				UploadId: upload.UploadId,
 			})
 
 			if err != nil {
-				if aerr, ok := err.(awserr.RequestFailure); ok {
-					switch aerr.StatusCode() {
-
-					default:
-						logger.Error(aerr.Error())
-					}
-				} else {
-					// Print the error, cast err to awserr.Error to get the Code and
-					// Message from an error.
-					logger.Error(err.Error())
+				bd.errors <- deleteError{
+					error: err,
 				}
-				return
 			}
 		}
+		return true
+	})
+	if err != nil {
+		bd.errors <- deleteError{
+			error: err,
+		}
 	}
+}
+
+func (bd *BucketDeleter) delete() error {
+
+	var err error
+
+	versions := bd.versions != nil
+
+	if versions || bd.recursive {
+
+		if bd.multiPart {
+			bd.wg.Add(1)
+			go bd.abortMultiPartUploads()
+		}
+
+		go bd.collectErrors()
+		go bd.deleteAllObjects(versions)
+
+		if versions {
+			// bd.recursive determines if an exact match is looked for when looking for versions.  if the value is true
+			// then an exact match is not searched for.
+			err = bd.lister.listObjectVersions(!bd.recursive)
+		} else {
+
+			err = bd.lister.listObjects(false)
+		}
+
+		if err != nil {
+			return err
+		}
+		//Wait for any errors to be reported before exiting
+		bd.wg.Wait()
+		bd.ewg.Wait()
+
+		if len(bd.errorList.errorList) > 0 {
+			return bd.errorList
+		}
+	} else {
+
+		_, err = bd.svc.DeleteObject(&s3.DeleteObjectInput{
+			Bucket: aws.String(bd.source.Host),
+			Key:    aws.String(bd.source.Path[1:]),
+		})
+
+	}
+	return err
 
 }
 
 // NewBucketDeleter creates a new BucketDeleter struct initialized with all variables needed to list a bucket
-func NewBucketDeleter(source string, quite bool, threads int, versions bool, recursive bool, sess *session.Session) (*BucketDeleter, error) {
+func NewBucketDeleter(source string, quite bool, threads int, versions bool, recursive bool, multiPart bool, sess *session.Session) (*BucketDeleter, error) {
 
 	sourceURL, err := url.Parse(source)
 	if err != nil {
@@ -164,15 +216,23 @@ func NewBucketDeleter(source string, quite bool, threads int, versions bool, rec
 
 	}
 
+	if !recursive || !versions {
+		if sourceURL.Path == "" {
+			return nil, errors.New("Must pass an object in the bucket to remove, not just the bucket name or use --recursive instead")
+		}
+	}
+
 	bd := &BucketDeleter{
 		source:    *sourceURL,
 		quiet:     quite,
 		wg:        sync.WaitGroup{},
 		total:     0,
 		recursive: recursive,
+		multiPart: multiPart,
+		errors:    make(chan deleteError, threads),
 	}
 
-	bd.lister, err = NewBucketLister(source, threads, sess)
+	bd.lister, err = NewBucketLister(source, versions, threads, sess)
 
 	if err != nil {
 		return nil, err

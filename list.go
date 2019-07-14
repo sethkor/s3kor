@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// objectCounter stores the total object count ans sum of object sizes returned in a ListObjects page.  This is useful
+// objectCounter stores the total object count ans sum of object sizes returned in a listObjects page.  This is useful
 // for things that track prgress such as a progress bar
 type objectCounter struct {
 	count int
@@ -106,7 +106,7 @@ func (bl *BucketLister) processListObjectsOutput(withSize bool) func(contents []
 }
 
 // Lists srcObjects and their versions in a bucket
-func (bl *BucketLister) listObjectVersions(exactMatch bool) {
+func (bl *BucketLister) listObjectVersions(exactMatch bool) error {
 	defer close(bl.versions)
 	var logger = zap.S()
 	logger.Infof("Listing all object versions and delete markers in bucket: %s", bl.source.RawPath)
@@ -145,12 +145,32 @@ func (bl *BucketLister) listObjectVersions(exactMatch bool) {
 			// Message from an error.
 			logger.Fatal(err.Error())
 		}
-		return
 	}
+
+	return err
 }
 
-// ListObjects lists srcObjects in a bucket
-func (bl *BucketLister) ListObjects(withSize bool) {
+// Prints objets found in the list operation
+func (bl *BucketLister) printAllObjects(versions bool) {
+	defer bl.wg.Done()
+	if versions {
+		for item := range bl.versions {
+			for _, object := range item {
+				fmt.Println(*object.VersionId + " " + *object.Key)
+			}
+		}
+	} else {
+		for item := range bl.objects {
+			for _, object := range item {
+				fmt.Println(*object.Key)
+			}
+		}
+	}
+
+}
+
+// listObjects lists srcObjects in a bucket
+func (bl *BucketLister) listObjects(withSize bool) error {
 	defer close(bl.objects)
 	var logger = zap.S()
 
@@ -187,45 +207,32 @@ func (bl *BucketLister) ListObjects(withSize bool) {
 			logger.Fatal(err.Error())
 		}
 		fmt.Println(err)
-		return
 	}
-}
-
-// Prints objets found in the list operation
-func (bl *BucketLister) printAllObjects(versions bool) {
-
-	if versions {
-		for item := range bl.versions {
-			for _, object := range item {
-				fmt.Println(*object.VersionId + " " + *object.Key)
-			}
-		}
-	} else {
-		for item := range bl.objects {
-			for _, object := range item {
-				fmt.Println(*object.Key)
-			}
-		}
-	}
-
+	return err
 }
 
 // List srcObjects for a bucket whose details are stored in the srcLister receiver.  Can list versions too
-func (bl *BucketLister) List(versions bool) {
+func (bl *BucketLister) List(versions bool) error {
 
+	go bl.printAllObjects(versions)
+	var err error
 	if versions {
 		bl.versions = make(chan []*s3.ObjectIdentifier, bl.threads)
-		go bl.listObjectVersions(false)
-		close(bl.objects)
+		err = bl.listObjectVersions(false)
+		bl.wg.Add(1)
 	} else {
 		bl.objects = make(chan []*s3.Object, bl.threads)
-		go bl.ListObjects(false)
-		close(bl.versions)
+		err = bl.listObjects(false)
+		bl.wg.Add(1)
 	}
-	bl.printAllObjects(versions)
+
+	bl.wg.Wait()
+
+	return err
+
 }
 
-func initBucketLister(source string, threads int) (*BucketLister, error) {
+func initBucketLister(source string, versions bool, threads int) (*BucketLister, error) {
 	sourceURL, err := url.Parse(source)
 	if err != nil {
 		return nil, err
@@ -240,18 +247,22 @@ func initBucketLister(source string, threads int) (*BucketLister, error) {
 	bl := &BucketLister{
 		source:   *sourceURL,
 		wg:       sync.WaitGroup{},
-		objects:  make(chan []*s3.Object),
-		versions: make(chan []*s3.ObjectIdentifier),
 		sizeChan: make(chan objectCounter, threads),
 		threads:  threads,
+	}
+
+	if versions {
+		bl.versions = make(chan []*s3.ObjectIdentifier)
+	} else {
+		bl.objects = make(chan []*s3.Object)
 	}
 	return bl, nil
 }
 
 // NewBucketLister creates a new BucketLister struct initialized with all variables needed to list a bucket
-func NewBucketLister(source string, threads int, sess *session.Session) (*BucketLister, error) {
+func NewBucketLister(source string, versions bool, threads int, sess *session.Session) (*BucketLister, error) {
 
-	bl, err := initBucketLister(source, threads)
+	bl, err := initBucketLister(source, versions, threads)
 
 	if err == nil {
 		bl.svc, err = checkBucket(sess, bl.source.Host, nil)
@@ -261,9 +272,9 @@ func NewBucketLister(source string, threads int, sess *session.Session) (*Bucket
 }
 
 // NewBucketListerWithSvc creates a new BucketLister struct initialized with all variables needed to list a bucket
-func NewBucketListerWithSvc(source string, threads int, svc *s3.S3) (*BucketLister, error) {
+func NewBucketListerWithSvc(source string, versions bool, threads int, svc *s3.S3) (*BucketLister, error) {
 
-	bl, err := initBucketLister(source, threads)
+	bl, err := initBucketLister(source, versions, threads)
 
 	if err == nil {
 		bl.svc = svc
