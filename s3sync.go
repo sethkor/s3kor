@@ -68,15 +68,19 @@ func (sy *BucketSyncer) syncS3ToS3() {
 
 	copyObjectsFunc := sy.copyObjects()
 
+	if sy.destSvc == sy.svc {
+		sy.threads = make(semaphore, sy.srcLister.threads*1000)
+	}
+
 	allThreads := cap(sy.threads)
 
 	rp := newRemoteCopier(sy.BucketCopier, nil)
 
 	//wait here until the destination listing is complete
 	wg.Wait()
-
+	found := false
 	for item := range sy.srcObjects {
-
+		found = true
 		for _, object := range item {
 			copyObj := true
 			if details, ok := sy.destMap[*object.Key]; ok {
@@ -86,7 +90,7 @@ func (sy *BucketSyncer) syncS3ToS3() {
 			}
 			if copyObj {
 				sy.threads.acquire(1)
-				if sy.destSvc == nil {
+				if sy.destSvc == sy.svc {
 					go copyObjectsFunc(object)
 				} else {
 					go rp.remoteCopyObject(object)
@@ -100,10 +104,18 @@ func (sy *BucketSyncer) syncS3ToS3() {
 		}
 	}
 	sy.threads.acquire(allThreads)
-
+	close(sy.errors)
+	if !found {
+		if !sy.quiet {
+			sy.bars.count.SetTotal(0, true)
+			if sy.bars.fileSize != nil {
+				sy.bars.fileSize.SetTotal(0, true)
+			}
+		}
+	}
 }
 
-func (sy *BucketSyncer) syncFileToS3() error {
+func (sy *BucketSyncer) syncFileToS3() {
 	defer sy.wg.Done()
 
 	// Start listing the destination bucket first thing.  Drop the results into a map so we can compare later
@@ -115,12 +127,12 @@ func (sy *BucketSyncer) syncFileToS3() error {
 	_, err := sy.checkPath(sy.source.Path)
 
 	if err != nil {
-		return err
+		sy.errors <- copyError{error: err}
+		return
 	}
 
 	if !sy.quiet {
 		go walkFiles(sy.source.Path, sy.files, sy.fileCounter)
-		sy.wg.Add(1)
 
 		go sy.bars.updateBar(sy.fileCounter)
 
@@ -153,11 +165,10 @@ func (sy *BucketSyncer) syncFileToS3() error {
 
 	}
 	sy.threads.acquire(allThreads)
-
-	return nil
+	close(sy.errors)
 }
 
-func (sy *BucketSyncer) syncObjToFile() func(item []*s3.Object) {
+func (sy *BucketSyncer) syncObjToFile(wg *sync.WaitGroup) func(item []*s3.Object) {
 
 	downloadFileFunc := sy.downloadObjects()
 
@@ -170,7 +181,8 @@ func (sy *BucketSyncer) syncObjToFile() func(item []*s3.Object) {
 	}
 
 	return func(item []*s3.Object) {
-		defer sy.threads.release(1)
+		defer wg.Done()
+
 		for _, object := range item {
 			copyObj := true
 			if details, ok := sy.destMap[basePath+(*object.Key)]; ok {
@@ -182,7 +194,7 @@ func (sy *BucketSyncer) syncObjToFile() func(item []*s3.Object) {
 			}
 			if copyObj {
 				sy.threads.acquire(1)
-				go downloadFileFunc(object)
+				downloadFileFunc(object)
 			} else {
 				if !sy.quiet {
 					sy.bars.count.IncrInt64(1)
@@ -192,12 +204,13 @@ func (sy *BucketSyncer) syncObjToFile() func(item []*s3.Object) {
 	}
 }
 
-func (sy *BucketSyncer) syncS3ToFile() error {
+func (sy *BucketSyncer) syncS3ToFile() {
 	defer sy.wg.Done()
 
 	_, err := sy.checkPath(sy.dest.Path)
 	if err != nil {
-		return err
+		sy.errors <- copyError{error: err}
+		return
 	}
 
 	go walkFilesQuiet(sy.dest.Path, sy.files)
@@ -212,11 +225,9 @@ func (sy *BucketSyncer) syncS3ToFile() error {
 	// List Objects
 	go sy.srcLister.listObjects(false)
 
-	allThreads := cap(sy.threads)
-
 	var total int64 = 1
 
-	syncObjToFileFunc := sy.syncObjToFile()
+	syncObjToFileFunc := sy.syncObjToFile(&wg)
 
 	wg.Wait()
 
@@ -226,17 +237,21 @@ func (sy *BucketSyncer) syncS3ToFile() error {
 		if !sy.quiet {
 			sy.bars.count.SetTotal(total, false)
 		}
-		sy.threads.acquire(1)
+		wg.Add(1)
 		go syncObjToFileFunc(item)
 
 	}
 
-	sy.threads.acquire(allThreads)
-
 	if !sy.quiet {
-		sy.bars.count.SetTotal(total-1, true)
+		if total == 1 {
+			sy.bars.count.SetTotal(0, true)
+		} else {
+			sy.bars.count.SetTotal(total-1, false)
+		}
 	}
-	return nil
+	wg.Wait()
+	close(sy.errors)
+
 }
 
 func (sy *BucketSyncer) setupBars() *mpb.Progress {
@@ -270,19 +285,17 @@ func (sy *BucketSyncer) sync() error {
 	}
 
 	var err error
+	go sy.collectErrors()
+
 	if sy.source.Scheme == "s3" && sy.dest.Scheme == "s3" {
 		//S3 to S3
 		sy.syncS3ToS3()
-
 	} else if sy.source.Scheme != "s3" {
 		/// Sync to S3
-		err = sy.syncFileToS3()
+		sy.syncFileToS3()
 	} else {
 		// Sync from S3
-		err = sy.syncS3ToFile()
-	}
-	if err != nil {
-		return err
+		sy.syncS3ToFile()
 	}
 
 	if progress != nil {
@@ -290,7 +303,11 @@ func (sy *BucketSyncer) sync() error {
 	} else {
 		sy.wg.Wait()
 	}
-	return nil
+	sy.ewg.Wait()
+	if len(sy.errorList.errorList) > 0 {
+		err = sy.errorList
+	}
+	return err
 }
 
 // NewSync creates a new BucketSyncer struct initialized with all variables needed to sync files and objects in and out of

@@ -42,7 +42,7 @@ var (
 	cpDestination = cp.Arg("destination", "file or s3 location").Required().String()
 	cpQuiet       = cp.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
 	cpRecursive   = cp.Flag("recursive", "Recursively copy").Short('r').Default("False").Bool()
-	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("50").Int()
+	cpConcurrent  = cp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("30").Int()
 	cpSSE         = cp.Flag("sse", "Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.").Default("AES256").Enum("AES256", "aws:kms")
 	cpSSEKMSKeyID = cp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
 	cpACL         = cp.Flag("acl", "Object ACL").Default(s3.ObjectCannedACLPrivate).Enum(s3.ObjectCannedACLAuthenticatedRead,
@@ -65,7 +65,7 @@ var (
 	syncSource      = syncOp.Arg("source", "file or s3 location").Required().String()
 	syncDestination = syncOp.Arg("destination", "file or s3 location").Required().String()
 	syncQuiet       = syncOp.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
-	syncConcurrent  = syncOp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("50").Int()
+	syncConcurrent  = syncOp.Flag("concurrent", "Maximum number of concurrent uploads to S3.").Short('c').Default("20").Int()
 	syncSSE         = syncOp.Flag("sse", "Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.").Default("AES256").Enum("AES256", "aws:kms")
 	syncSSEKMSKeyID = syncOp.Flag("sse-kms-key-id", "The AWS KMS key ID that should be used to server-side encrypt the object in S3.").String()
 	syncACL         = syncOp.Flag("acl", "Object ACL").Default(s3.ObjectCannedACLPrivate).Enum(s3.ObjectCannedACLAuthenticatedRead,

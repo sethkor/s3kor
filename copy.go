@@ -39,16 +39,16 @@ func (ce copyError) Error() string {
 	var errString string
 
 	if ce.download != nil {
-		errString = *ce.download.Key
+		errString = *ce.download.Key + " "
 	} else if ce.upload != nil {
-		errString = *ce.upload.Key
+		errString = *ce.upload.Key + " "
 	} else if ce.copy != nil {
-		errString = *ce.copy.Key
-	} else {
-		errString = *ce.multi.Input.Key
+		errString = *ce.copy.Key + " "
+	} else if ce.multi != nil {
+		errString = *ce.multi.Input.Key + " "
 	}
 
-	return errString + " " + ce.error.Error()
+	return errString + ce.error.Error()
 }
 
 func (cel copyErrorList) Error() string {
@@ -100,6 +100,7 @@ func (cp *BucketCopier) collectErrors() {
 	defer cp.ewg.Done()
 	for err := range cp.errors {
 		cp.errorList.errorList = append(cp.errorList.errorList, err)
+		//fmt.Println("ERROR: " + err.Error())
 	}
 }
 
@@ -170,6 +171,7 @@ func (cp *BucketCopier) uploadFile() func(file fileJob) {
 }
 
 func (cp *BucketCopier) processFiles() {
+	defer cp.wg.Done()
 
 	allThreads := cap(cp.threads)
 	uploadFileFunc := cp.uploadFile()
@@ -179,7 +181,6 @@ func (cp *BucketCopier) processFiles() {
 	}
 	cp.threads.acquire(allThreads) // don't continue until all goroutines complete
 	close(cp.errors)
-	cp.wg.Done()
 
 }
 
@@ -289,8 +290,9 @@ func (cp *BucketCopier) downloadAllObjects() {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
+	found := false
 	for item := range cp.srcObjects {
-
+		found = true
 		for _, object := range item {
 			cp.threads.acquire(1)
 			go downloadObjectsFunc(object)
@@ -299,6 +301,15 @@ func (cp *BucketCopier) downloadAllObjects() {
 	}
 	cp.threads.acquire(allThreads)
 	close(cp.errors)
+
+	if !found {
+		if !cp.quiet {
+			cp.bars.count.SetTotal(0, true)
+			if cp.bars.fileSize != nil {
+				cp.bars.fileSize.SetTotal(0, true)
+			}
+		}
+	}
 
 }
 
@@ -375,8 +386,9 @@ func (cp *BucketCopier) copyAllObjects() {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
+	found := false
 	for item := range cp.srcObjects {
-
+		found = true
 		for _, object := range item {
 			cp.threads.acquire(1)
 			go copyObjectsFunc(object)
@@ -385,6 +397,14 @@ func (cp *BucketCopier) copyAllObjects() {
 	}
 	cp.threads.acquire(allThreads)
 	close(cp.errors)
+	if !found {
+		if !cp.quiet {
+			cp.bars.count.SetTotal(0, true)
+			if cp.bars.fileSize != nil {
+				cp.bars.fileSize.SetTotal(0, true)
+			}
+		}
+	}
 }
 
 func (cp *BucketCopier) setupBars() *mpb.Progress {
@@ -442,7 +462,8 @@ func (cp *BucketCopier) copyS3ToS3(progress *mpb.Progress) {
 	// List Objects
 	go cp.srcLister.listObjects(true)
 
-	if cp.destSvc == nil {
+	if cp.destSvc == cp.destSvc {
+		cp.threads = make(semaphore, cp.srcLister.threads*1000)
 		cp.copyAllObjects()
 	} else {
 		rp := newRemoteCopier(cp, progress)
@@ -626,6 +647,7 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 			cp.destSvc = destSvc
 		} else {
 			cp.uploadManager = *s3manager.NewUploaderWithClient(cp.svc)
+			cp.destSvc = cp.svc
 		}
 	}
 
