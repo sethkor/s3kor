@@ -106,12 +106,7 @@ func (sy *BucketSyncer) syncS3ToS3() {
 	sy.threads.acquire(allThreads)
 	close(sy.errors)
 	if !found {
-		if !sy.quiet {
-			sy.bars.count.SetTotal(0, true)
-			if sy.bars.fileSize != nil {
-				sy.bars.fileSize.SetTotal(0, true)
-			}
-		}
+		sy.endBarsZero()
 	}
 }
 
@@ -146,8 +141,9 @@ func (sy *BucketSyncer) syncFileToS3() {
 
 	//wait here until the destination listing is complete
 	wg.Wait()
-
+	found := false
 	for file := range sy.files {
+		found = true
 		copyFile := true
 		if details, ok := sy.destMap[file.path[sy.sourceLength:]]; ok {
 			if details.lastModified.After(file.info.ModTime()) && *details.size == file.info.Size() {
@@ -166,6 +162,9 @@ func (sy *BucketSyncer) syncFileToS3() {
 	}
 	sy.threads.acquire(allThreads)
 	close(sy.errors)
+	if !found {
+		sy.endBarsZero()
+	}
 }
 
 func (sy *BucketSyncer) syncObjToFile(wg *sync.WaitGroup) func(item []*s3.Object) {
@@ -244,7 +243,7 @@ func (sy *BucketSyncer) syncS3ToFile() {
 
 	if !sy.quiet {
 		if total == 1 {
-			sy.bars.count.SetTotal(0, true)
+			sy.endBarsZero()
 		} else {
 			sy.bars.count.SetTotal(total-1, false)
 		}

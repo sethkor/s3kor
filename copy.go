@@ -113,12 +113,27 @@ func (cp *BucketCopier) updateBars(count int64, size int64, timeSince time.Durat
 	}
 }
 
+func (cp *BucketCopier) endBarsZero() {
+	if !cp.quiet {
+		cp.bars.count.SetTotal(0, true)
+		if cp.bars.fileSize != nil {
+			cp.bars.fileSize.SetTotal(0, true)
+		}
+	}
+}
+
 func (cp *BucketCopier) copyFile(file string) {
 	var logger = zap.S()
 
 	f, err := os.Open(filepath.Clean(file))
 	if err != nil {
 		logger.Errorf("failed to open file %q, %v", file, err)
+
+		if err != nil {
+			cp.errors <- copyError{
+				error: err,
+			}
+		}
 	} else {
 		// Upload the file to S3.
 		input := cp.template
@@ -131,7 +146,6 @@ func (cp *BucketCopier) copyFile(file string) {
 				error:  err,
 				upload: &input,
 			}
-			return
 		}
 		err = f.Close()
 		if err != nil {
@@ -141,6 +155,7 @@ func (cp *BucketCopier) copyFile(file string) {
 			return
 		}
 	}
+	return
 }
 
 func (cp *BucketCopier) uploadFile() func(file fileJob) {
@@ -175,12 +190,19 @@ func (cp *BucketCopier) processFiles() {
 
 	allThreads := cap(cp.threads)
 	uploadFileFunc := cp.uploadFile()
+
+	found := false
 	for file := range cp.files {
+		found = true
 		cp.threads.acquire(1) // or block until one slot is free
 		go uploadFileFunc(file)
 	}
 	cp.threads.acquire(allThreads) // don't continue until all goroutines complete
 	close(cp.errors)
+
+	if !found {
+		cp.endBarsZero()
+	}
 
 }
 
@@ -303,12 +325,7 @@ func (cp *BucketCopier) downloadAllObjects() {
 	close(cp.errors)
 
 	if !found {
-		if !cp.quiet {
-			cp.bars.count.SetTotal(0, true)
-			if cp.bars.fileSize != nil {
-				cp.bars.fileSize.SetTotal(0, true)
-			}
-		}
+		cp.endBarsZero()
 	}
 
 }
@@ -398,12 +415,7 @@ func (cp *BucketCopier) copyAllObjects() {
 	cp.threads.acquire(allThreads)
 	close(cp.errors)
 	if !found {
-		if !cp.quiet {
-			cp.bars.count.SetTotal(0, true)
-			if cp.bars.fileSize != nil {
-				cp.bars.fileSize.SetTotal(0, true)
-			}
-		}
+		cp.endBarsZero()
 	}
 }
 
@@ -476,6 +488,8 @@ func (cp *BucketCopier) copyFileToS3() {
 
 	if err != nil {
 		cp.errors <- copyError{error: err}
+
+		cp.endBarsZero()
 		return
 	}
 
@@ -490,9 +504,26 @@ func (cp *BucketCopier) copyFileToS3() {
 		}
 		cp.processFiles()
 
-	} else if !isDir {
-		// single file copy
-		cp.copyFile(cp.source.Path)
+	} else {
+		if !isDir {
+			// single file copy
+			cp.copyFile(cp.source.Path)
+
+			if !cp.quiet {
+				cp.bars.count.SetTotal(1, true)
+				if cp.bars.fileSize != nil {
+					info, _ := os.Lstat(cp.source.Path)
+					cp.bars.fileSize.SetTotal(info.Size(), true)
+				}
+			}
+		} else {
+			cp.endBarsZero()
+		}
+		close(cp.errors)
+		if !cp.quiet {
+			cp.wg.Done()
+		}
+
 	}
 }
 
