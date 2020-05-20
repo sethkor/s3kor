@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vbauerster/mpb"
-	"github.com/vbauerster/mpb/decor"
+	"github.com/vbauerster/mpb/v5"
+	"github.com/vbauerster/mpb/v5/decor"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"

@@ -7,9 +7,8 @@ import (
 	"io/ioutil"
 	"sync"
 
-	"github.com/vbauerster/mpb"
-
 	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/vbauerster/mpb/v5"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"

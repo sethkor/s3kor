@@ -15,8 +15,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alecthomas/kingpin"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 ///Command line flags
