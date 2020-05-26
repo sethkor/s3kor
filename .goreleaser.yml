@@ -17,9 +17,9 @@ builds:
     - amd64
     - 386
     - arm64
-#    - arm
-#  goarm:
-#    - 6
+    - arm
+  goarm:
+    - 6
 #    - 7
   ignore:
     - goos: darwin
@@ -41,6 +41,17 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+
+brews:
+  -
+    name: s3kor
+    github:
+      owner: sethkor
+      name: homebrew-tap
+    folder: Formula
+    description: "Fast S3 Tools built in GoLang Using Multiparts and Concurrency"
+
+
 
 checksum:
   name_template: 'checksums.txt'

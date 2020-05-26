@@ -83,14 +83,15 @@ type BucketCopier struct {
 	ewg             sync.WaitGroup
 	files           chan fileJob
 	fileCounter     chan int64
-	versions        chan []*s3.ObjectIdentifier
-	srcObjects      chan []*s3.Object
-	sizeChan        chan objectCounter
-	threads         semaphore
-	template        s3manager.UploadInput
-	srcLister       *BucketLister
-	errors          chan copyError
-	errorList       copyErrorList
+	//versions is not impleented yet
+	//versions        chan []*s3.ObjectIdentifier
+	srcObjects chan []*s3.Object
+	sizeChan   chan objectCounter
+	threads    semaphore
+	template   s3manager.UploadInput
+	srcLister  *BucketLister
+	errors     chan copyError
+	errorList  copyErrorList
 }
 
 // collectErrors processes any any errors passed via the error channel
@@ -109,16 +110,7 @@ func (cp *BucketCopier) updateBars(count int64, size int64, timeSince time.Durat
 		cp.bars.count.IncrInt64(count)
 		if cp.bars.fileSize != nil {
 			cp.bars.fileSize.IncrInt64(size)
-			//			cp.bars.fileSize.DecoratorEwmaUpdate(timeSince)
-		}
-	}
-}
-
-func (cp *BucketCopier) endBarsZero() {
-	if !cp.quiet {
-		cp.bars.count.SetTotal(0, false)
-		if cp.bars.fileSize != nil {
-			cp.bars.fileSize.SetTotal(0, false)
+			cp.bars.fileSize.DecoratorEwmaUpdate(timeSince)
 		}
 	}
 }
@@ -156,7 +148,6 @@ func (cp *BucketCopier) copyFile(file string) {
 			return
 		}
 	}
-	return
 }
 
 func (cp *BucketCopier) uploadFile() func(file fileJob) {
@@ -192,18 +183,12 @@ func (cp *BucketCopier) processFiles() {
 	allThreads := cap(cp.threads)
 	uploadFileFunc := cp.uploadFile()
 
-	//found := false
 	for file := range cp.files {
-		//found = true
 		cp.threads.acquire(1) // or block until one slot is free
 		go uploadFileFunc(file)
 	}
 	cp.threads.acquire(allThreads) // don't continue until all goroutines complete
 	close(cp.errors)
-
-	//if !found {
-	//	cp.endBarsZero()
-	//}
 
 }
 
@@ -313,9 +298,7 @@ func (cp *BucketCopier) downloadAllObjects() {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
-	//found := false
 	for item := range cp.srcObjects {
-		//found = true
 		for _, object := range item {
 			cp.threads.acquire(1)
 			go downloadObjectsFunc(object)
@@ -324,10 +307,6 @@ func (cp *BucketCopier) downloadAllObjects() {
 	}
 	cp.threads.acquire(allThreads)
 	close(cp.errors)
-
-	//if !found {
-	//	cp.endBarsZero()
-	//}
 
 }
 
@@ -404,20 +383,14 @@ func (cp *BucketCopier) copyAllObjects() {
 
 	//we need one thread to update the progress bar and another to do the downloads
 
-	//found := false
 	for item := range cp.srcObjects {
-		//found = true
 		for _, object := range item {
 			cp.threads.acquire(1)
 			go copyObjectsFunc(object)
 		}
-
 	}
 	cp.threads.acquire(allThreads)
 	close(cp.errors)
-	//if !found {
-	//	cp.endBarsZero()
-	//}
 }
 
 func (cp *BucketCopier) setupBars() *mpb.Progress {
@@ -475,7 +448,8 @@ func (cp *BucketCopier) copyS3ToS3(progress *mpb.Progress) {
 	// List Objects
 	go cp.srcLister.listObjects(true)
 
-	if cp.destSvc == cp.destSvc {
+	//check to see if src and dest bucket are using the same credentials
+	if cp.destSvc == cp.svc {
 		cp.threads = make(semaphore, cp.srcLister.threads*1000)
 		cp.copyAllObjects()
 	} else {
@@ -489,8 +463,6 @@ func (cp *BucketCopier) copyFileToS3() {
 
 	if err != nil {
 		cp.errors <- copyError{error: err}
-
-		//cp.endBarsZero()
 		return
 	}
 
@@ -517,8 +489,6 @@ func (cp *BucketCopier) copyFileToS3() {
 					cp.bars.fileSize.SetTotal(info.Size(), true)
 				}
 			}
-		} else {
-			//cp.endBarsZero()
 		}
 		close(cp.errors)
 		if !cp.quiet {

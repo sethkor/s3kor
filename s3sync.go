@@ -78,9 +78,7 @@ func (sy *BucketSyncer) syncS3ToS3() {
 
 	//wait here until the destination listing is complete
 	wg.Wait()
-	found := false
 	for item := range sy.srcObjects {
-		found = true
 		for _, object := range item {
 			copyObj := true
 			if details, ok := sy.destMap[*object.Key]; ok {
@@ -105,9 +103,6 @@ func (sy *BucketSyncer) syncS3ToS3() {
 	}
 	sy.threads.acquire(allThreads)
 	close(sy.errors)
-	if !found {
-		sy.endBarsZero()
-	}
 }
 
 func (sy *BucketSyncer) syncFileToS3() {
@@ -141,9 +136,7 @@ func (sy *BucketSyncer) syncFileToS3() {
 
 	//wait here until the destination listing is complete
 	wg.Wait()
-	found := false
 	for file := range sy.files {
-		found = true
 		copyFile := true
 		if details, ok := sy.destMap[file.path[sy.sourceLength:]]; ok {
 			if details.lastModified.After(file.info.ModTime()) && *details.size == file.info.Size() {
@@ -162,9 +155,6 @@ func (sy *BucketSyncer) syncFileToS3() {
 	}
 	sy.threads.acquire(allThreads)
 	close(sy.errors)
-	if !found {
-		sy.endBarsZero()
-	}
 }
 
 func (sy *BucketSyncer) syncObjToFile(wg *sync.WaitGroup) func(item []*s3.Object) {
@@ -242,11 +232,7 @@ func (sy *BucketSyncer) syncS3ToFile() {
 	}
 
 	if !sy.quiet {
-		if total == 1 {
-			sy.endBarsZero()
-		} else {
-			sy.bars.count.SetTotal(total-1, false)
-		}
+		sy.bars.count.SetTotal(total-1, false)
 	}
 	wg.Wait()
 	close(sy.errors)
@@ -297,11 +283,15 @@ func (sy *BucketSyncer) sync() error {
 		sy.syncS3ToFile()
 	}
 
+	sy.wg.Wait()
+
 	if progress != nil {
+		if !sy.quiet {
+			sy.bars.count.SetTotal(sy.bars.count.Current(), true)
+		}
 		progress.Wait()
-	} else {
-		sy.wg.Wait()
 	}
+
 	sy.ewg.Wait()
 	if len(sy.errorList.errorList) > 0 {
 		err = sy.errorList
@@ -333,7 +323,8 @@ func NewSync(source string, dest string, threads int, quiet bool, sess *session.
 	// Some BucketCopier attributes not used for syncing We should zero them so the gc frees
 	// them up
 
-	sy.versions = nil
+	//versions is not implemented yet
+	//sy.versions = nil
 	if sy.srcLister != nil {
 		sy.srcLister.versions = nil
 	}

@@ -234,7 +234,7 @@ func main() {
 	logger := zap.S()
 
 	//Parse args and flags passed to us
-	app.Version(version)
+	app.Version(version + " " + commit + " " + date)
 	kingpin.CommandLine.HelpFlag.Short('h')
 
 	err := switchCommand()

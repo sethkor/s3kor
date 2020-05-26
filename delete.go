@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -212,12 +213,21 @@ func NewBucketDeleter(source string, quite bool, threads int, versions bool, rec
 	}
 
 	if sourceURL.Scheme != "s3" {
-		return nil, errors.New("usage: aws s3 ls <S3Uri> ")
+		return nil, errors.New("usage: aws s3 rm <S3Uri> ")
 
 	}
 
-	if !recursive || !versions {
+	if !recursive {
+		invalidPath := false
 		if sourceURL.Path == "" {
+			invalidPath = true
+		} else {
+			lastchar := []rune(sourceURL.Path)[len(sourceURL.Path)-1]
+			if lastchar == os.PathSeparator {
+				invalidPath = true
+			}
+		}
+		if invalidPath {
 			return nil, errors.New("Must pass an object in the bucket to remove, not just the bucket name or use --recursive instead")
 		}
 	}
