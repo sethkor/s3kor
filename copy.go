@@ -110,7 +110,6 @@ func (cp *BucketCopier) updateBars(count int64, size int64, timeSince time.Durat
 		cp.bars.count.IncrInt64(count)
 		if cp.bars.fileSize != nil {
 			cp.bars.fileSize.IncrInt64(size)
-			cp.bars.fileSize.DecoratorEwmaUpdate(timeSince)
 		}
 	}
 }
