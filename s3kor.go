@@ -15,8 +15,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alecthomas/kingpin"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 ///Command line flags
@@ -234,7 +234,7 @@ func main() {
 	logger := zap.S()
 
 	//Parse args and flags passed to us
-	app.Version(version)
+	app.Version(version + " " + commit + " " + date)
 	kingpin.CommandLine.HelpFlag.Short('h')
 
 	err := switchCommand()

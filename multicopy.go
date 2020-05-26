@@ -24,7 +24,7 @@ const MaxCopyParts = 10000
 const MinCopyPartSize int64 = 1024 * 1024 * 5
 
 // MaxCopyPartSize is the maximum allowed part size when copying a part to
-// Amazon S3.  Sould be 5GB
+// Amazon S3.  Should be 5GB
 const MaxCopyPartSize int64 = 1024 * 1024 * 1024 * 5
 
 // DefaultCopyPartSize is the default part size to buffer chunkThreads of a
@@ -349,7 +349,7 @@ func (c Copyer) CopyWithContext(ctx aws.Context, input *MultiCopyInput, opts ...
 //	return nil
 //}
 
-// internal structure to manage an copy to S3.
+// internal structure to manage a copy to S3.
 type copyer struct {
 	ctx aws.Context
 	cfg Copyer

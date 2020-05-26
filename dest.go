@@ -7,9 +7,8 @@ import (
 	"io/ioutil"
 	"sync"
 
-	"github.com/vbauerster/mpb"
-
 	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/vbauerster/mpb/v5"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -18,11 +17,10 @@ import (
 const chunkSize int64 = 5 * 1024 * 1024
 
 type chunk struct {
-	buffer   io.ReadCloser
-	start    int64
-	finish   int64
-	num      int64
-	template s3.UploadPartInput
+	buffer io.ReadCloser
+	start  int64
+	finish int64
+	num    int64
 }
 
 type remoteCopy struct {
@@ -254,9 +252,7 @@ func (rp *remoteCopy) remoteCopy() {
 		}
 
 	}
-	//fmt.Println("Acquire\n\n\n\n")
 	rp.threads.acquire(allThreads)
-	//fmt.Println("Close\n\n\n\n")
 	close(rp.errors)
 
 }
