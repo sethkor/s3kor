@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sethkor/cwalk"
+	"github.com/iafan/cwalk"
 	"go.uber.org/zap"
 )
 
