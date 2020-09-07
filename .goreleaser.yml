@@ -45,7 +45,7 @@ archives:
 brews:
   -
     name: s3kor
-    github:
+    tap:
       owner: sethkor
       name: homebrew-tap
     folder: Formula
