@@ -91,6 +91,7 @@ Please raise an issue if theres a specific feature you. would like considered or
       --storage-class=STANDARD  Storage Class
       --dest-profile=DEST-PROFILE  
                                 Destination bucket AWS credentials/config file profile to use if different from --profile
+      --accelerate              Use S3 Acceleration
 
 Args:
   <source>       file or s3 location
@@ -173,6 +174,7 @@ Sync only compares mod timestamps and sizes as the only true way to get a MD5 or
       --storage-class=STANDARD  Storage Class
       --dest-profile=DEST-PROFILE  
                                 Destination bucket AWS credentials/config file profile to use if different from --profile
+      --accelerate              Use S3 Acceleration
                                 
 Args:
   <source>       file or s3 location

@@ -588,7 +588,7 @@ func (cp *BucketCopier) copy() error {
 
 // NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy srcObjects in and out of
 // a bucket
-func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string, recursive bool) (*BucketCopier, error) {
+func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string, recursive bool, accelerate bool) (*BucketCopier, error) {
 
 	sourceURL, err := url.Parse(source)
 	if err != nil {
@@ -653,6 +653,7 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 				Config: aws.Config{
 					CredentialsChainVerboseErrors: aws.Bool(true),
 					MaxRetries:                    aws.Int(30),
+					S3UseAccelerate:               aws.Bool(accelerate),
 				},
 			}))
 		}
