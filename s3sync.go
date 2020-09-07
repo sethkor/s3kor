@@ -301,14 +301,14 @@ func (sy *BucketSyncer) sync() error {
 
 // NewSync creates a new BucketSyncer struct initialized with all variables needed to sync files and objects in and out of
 // a bucket
-func NewSync(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string) (*BucketSyncer, error) {
+func NewSync(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string, accelerate bool) (*BucketSyncer, error) {
 
 	sy := &BucketSyncer{
 		destMap: make(map[string]objDateSize),
 	}
 
 	var err error
-	sy.BucketCopier, err = NewBucketCopier(source, dest, threads, quiet, sess, template, destProfile, true)
+	sy.BucketCopier, err = NewBucketCopier(source, dest, threads, quiet, sess, template, destProfile, true, accelerate)
 
 	if err != nil {
 		if sy.source.Scheme != "s3" && sy.dest.Scheme != "s3" {

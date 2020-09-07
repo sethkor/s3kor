@@ -60,6 +60,7 @@ var (
 		s3.StorageClassReducedRedundancy,
 		s3.StorageClassIntelligentTiering)
 	cpDestProfile = cp.Flag("dest-profile", "Destination bucket AWS credentials/config file profile to use if different from --profile").String()
+	cpAccelerate  = cp.Flag("accelerate", "Use S3 Acceleration").Default("false").Bool()
 
 	syncOp          = app.Command("sync", "sync")
 	syncSource      = syncOp.Arg("source", "file or s3 location").Required().String()
@@ -83,6 +84,7 @@ var (
 		s3.StorageClassReducedRedundancy,
 		s3.StorageClassIntelligentTiering)
 	syncDestProfile = syncOp.Flag("dest-profile", "Destination bucket AWS credentials/config file profile to use if different from --profile").String()
+	syncAccelerate  = syncOp.Flag("accelerate", "Use S3 Acceleration").Default("false").Bool()
 )
 
 //version variable which can be overidden at compile time
@@ -201,7 +203,7 @@ func switchCommand() error {
 			inputTemplate.ServerSideEncryption = cpSSEKMSKeyID
 		}
 		var copier *BucketCopier
-		copier, err = NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive)
+		copier, err = NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive, *cpAccelerate)
 		if err == nil {
 			err = copier.copy()
 		}
@@ -219,7 +221,7 @@ func switchCommand() error {
 		}
 		var syncer *BucketSyncer
 
-		syncer, err = NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile)
+		syncer, err = NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile, *cpAccelerate)
 		if err == nil {
 			err = syncer.sync()
 		}
