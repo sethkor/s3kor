@@ -565,7 +565,7 @@ func (cp *BucketCopier) copy() error {
 
 // NewBucketCopier creates a new BucketCopier struct initialized with all variables needed to copy srcObjects in and out of
 // a bucket
-func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string, recursive bool, accelerate bool) (*BucketCopier, error) {
+func NewBucketCopier(detectRegion bool, source string, dest string, threads int, quiet bool, sess *session.Session, template s3manager.UploadInput, destProfile string, recursive bool, accelerate bool) (*BucketCopier, error) {
 
 	sourceURL, err := url.Parse(source)
 	if err != nil {
@@ -617,7 +617,7 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 	if sourceURL.Scheme == "s3" {
 		wg.Add(1)
 		go func() {
-			cp.svc, err = checkBucket(sess, cp.source.Host, &wg)
+			cp.svc, err = checkBucket(sess, detectRegion, cp.source.Host, &wg)
 		}()
 	}
 
@@ -637,7 +637,7 @@ func NewBucketCopier(source string, dest string, threads int, quiet bool, sess *
 
 		wg.Add(1)
 		go func() {
-			destSvc, err = checkBucket(sess, cp.dest.Host, &wg)
+			destSvc, err = checkBucket(sess, detectRegion, cp.dest.Host, &wg)
 		}()
 	}
 

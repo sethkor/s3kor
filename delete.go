@@ -205,7 +205,7 @@ func (bd *BucketDeleter) delete() error {
 }
 
 // NewBucketDeleter creates a new BucketDeleter struct initialized with all variables needed to list a bucket
-func NewBucketDeleter(source string, quite bool, threads int, versions bool, recursive bool, multiPart bool, sess *session.Session) (*BucketDeleter, error) {
+func NewBucketDeleter(detectRegion bool, source string, quite bool, threads int, versions bool, recursive bool, multiPart bool, sess *session.Session) (*BucketDeleter, error) {
 
 	sourceURL, err := url.Parse(source)
 	if err != nil {
@@ -242,7 +242,7 @@ func NewBucketDeleter(source string, quite bool, threads int, versions bool, rec
 		errors:    make(chan deleteError, threads),
 	}
 
-	bd.lister, err = NewBucketLister(source, versions, threads, sess)
+	bd.lister, err = NewBucketLister(detectRegion, source, versions, threads, sess)
 
 	if err != nil {
 		return nil, err
@@ -256,7 +256,7 @@ func NewBucketDeleter(source string, quite bool, threads int, versions bool, rec
 		bd.lister.objects = bd.objects
 	}
 
-	bd.svc, err = checkBucket(sess, sourceURL.Host, nil)
+	bd.svc, err = checkBucket(sess, detectRegion, sourceURL.Host, nil)
 	if err != nil {
 		return nil, err
 	}
