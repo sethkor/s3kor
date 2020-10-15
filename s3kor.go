@@ -114,8 +114,8 @@ func setUpLogger() {
 
 	logFile, err := ioutil.TempFile(os.TempDir(), "s3kor")
 
-	if err != nil {
-		defer logFile.Close()
+	if err == nil {
+		//defer logFile.Close()
 
 		//workaround for windows file paths and names
 
@@ -135,10 +135,12 @@ func setUpLogger() {
 	}
 
 	logger, err := config.Build()
-	if err != nil {
+	if err == nil {
 		zap.ReplaceGlobals(logger)
 		zap.RedirectStdLog(logger)
 	}
+
+	logger.Debug("Logging enabled")
 
 }
 
@@ -171,10 +173,11 @@ func getAwsSession() *session.Session {
 	return sess
 }
 
-func switchCommand() error {
+func switchCommand(command string) error {
+	logger := zap.S()
+	logger.Debug("func switchCommand(command string) error")
 	var err error
 
-	command := kingpin.MustParse(app.Parse(os.Args[1:]))
 	sess := getAwsSession()
 
 	switch command {
@@ -233,14 +236,14 @@ func switchCommand() error {
 
 func main() {
 
-	setUpLogger()
-	logger := zap.S()
-
 	//Parse args and flags passed to us
 	app.Version(version + " " + commit + " " + date)
 	kingpin.CommandLine.HelpFlag.Short('h')
+	command := kingpin.MustParse(app.Parse(os.Args[1:]))
+	setUpLogger()
+	logger := zap.S()
 
-	err := switchCommand()
+	err := switchCommand(command)
 
 	if err != nil {
 		fmt.Println(err.Error())
