@@ -328,7 +328,7 @@ func (cp *BucketCopier) copyObjects() func(object *s3.Object) {
 		start := time.Now()
 		copyInput := copyTemplate
 
-		copyInput.CopySource = aws.String(cp.source.Host + "/" + *object.Key)
+		copyInput.CopySource = aws.String(url.QueryEscape(cp.source.Host + "/" + *object.Key))
 
 		if len(cp.source.Path) == 0 {
 			copyInput.Key = object.Key
