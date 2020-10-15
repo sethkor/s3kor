@@ -13,14 +13,17 @@ import (
 )
 
 // checkBucket checks a buckets region.  We use the HeadObject function as this is can be used anonymously and is not
-// subject to the buckets policy like GetBucketRegion.  The region is retorned in the header of the HTTP response.
-func checkBucket(sess *session.Session, bucket string, wg *sync.WaitGroup) (svc *s3.S3, err error) {
+// subject to the buckets policy like GetBucketRegion.  The region is returned in the header of the HTTP response.
+func checkBucket(sess *session.Session, detectRegion bool, bucket string, wg *sync.WaitGroup) (svc *s3.S3, err error) {
 	if wg != nil {
 		defer wg.Done()
 	}
 	var logger = zap.S()
 
 	svc = s3.New(sess)
+	if !detectRegion && sess.Config.Region != nil {
+		return svc, nil
+	}
 
 	result, err := svc.GetBucketLocation(&s3.GetBucketLocationInput{
 		Bucket: aws.String(bucket),

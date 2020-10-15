@@ -385,12 +385,12 @@ func (c *copyer) copy() (*CopyOutput, error) {
 	var err error
 	c.head, err = c.cfg.S3.HeadObject(&ho)
 
-	//Number of parts is part size divided by object length + 1
-	c.parts = ((*c.head.ContentLength) / c.cfg.PartSize) + 1
-
 	if err != nil {
 		return nil, awserr.New("HeadObject", "head object failed", err)
 	}
+
+	//Number of parts is part size divided by object length + 1
+	c.parts = ((*c.head.ContentLength) / c.cfg.PartSize) + 1
 
 	mu := multicopyer{copyer: c}
 	return mu.copy()

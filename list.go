@@ -260,12 +260,12 @@ func initBucketLister(source string, versions bool, threads int) (*BucketLister,
 }
 
 // NewBucketLister creates a new BucketLister struct initialized with all variables needed to list a bucket
-func NewBucketLister(source string, versions bool, threads int, sess *session.Session) (*BucketLister, error) {
+func NewBucketLister(detectRegion bool, source string, versions bool, threads int, sess *session.Session) (*BucketLister, error) {
 
 	bl, err := initBucketLister(source, versions, threads)
 
 	if err == nil {
-		bl.svc, err = checkBucket(sess, bl.source.Host, nil)
+		bl.svc, err = checkBucket(sess, detectRegion, bl.source.Host, nil)
 	}
 
 	return bl, err

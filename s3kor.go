@@ -21,10 +21,11 @@ import (
 
 ///Command line flags
 var (
-	app      = kingpin.New("s3kor", "s3 tools using golang concurency")
-	pProfile = app.Flag("profile", "AWS credentials/config file profile to use").String()
-	pRegion  = app.Flag("region", "AWS region").String()
-	pVerbose = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
+	app           = kingpin.New("s3kor", "s3 tools using golang concurency")
+	pProfile      = app.Flag("profile", "AWS credentials/config file profile to use").String()
+	pRegion       = app.Flag("region", "AWS region").String()
+	pDetectRegion = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
+	pVerbose      = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
@@ -179,14 +180,14 @@ func switchCommand() error {
 	switch command {
 	case rm.FullCommand():
 		var deleter *BucketDeleter
-		deleter, err = NewBucketDeleter(*rmPath, *rmQuiet, 50, *rmAllVersions, *rmRecursive, *rmMultiParts, sess)
+		deleter, err = NewBucketDeleter(*pDetectRegion, *rmPath, *rmQuiet, 50, *rmAllVersions, *rmRecursive, *rmMultiParts, sess)
 		if err == nil {
 			err = deleter.delete()
 		}
 
 	case ls.FullCommand():
 		var lister *BucketLister
-		lister, err = NewBucketLister(*lsPath, *lsAllVersions, 50, sess)
+		lister, err = NewBucketLister(*pDetectRegion, *lsPath, *lsAllVersions, 50, sess)
 		if err == nil {
 			err = lister.List(*lsAllVersions)
 		}
@@ -203,7 +204,7 @@ func switchCommand() error {
 			inputTemplate.ServerSideEncryption = cpSSEKMSKeyID
 		}
 		var copier *BucketCopier
-		copier, err = NewBucketCopier(*cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive, *cpAccelerate)
+		copier, err = NewBucketCopier(*pDetectRegion, *cpSource, *cpDestination, *cpConcurrent, *cpQuiet, sess, inputTemplate, *cpDestProfile, *cpRecursive, *cpAccelerate)
 		if err == nil {
 			err = copier.copy()
 		}
@@ -221,7 +222,7 @@ func switchCommand() error {
 		}
 		var syncer *BucketSyncer
 
-		syncer, err = NewSync(*syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile, *cpAccelerate)
+		syncer, err = NewSync(*pDetectRegion, *syncSource, *syncDestination, *syncConcurrent, *syncQuiet, sess, inputTemplate, *syncDestProfile, *cpAccelerate)
 		if err == nil {
 			err = syncer.sync()
 		}
