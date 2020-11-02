@@ -108,6 +108,8 @@ For optimal throughput consider using a S3 VPC Gateway endpoint if you are execu
 
 And remember the performance of the source storage device is important, you don't want to choke it reading lots of data at once.  Use an optimized iops device or SAN.
 
+Meta data is copied when copying from S3 to S3.
+
 ### Supports different AWS account credentials for source and destination buckets
 
 If you ever need to copy objects to an account which you don't own and need a seperate set of AWS credentials to access it, s3kor is perfect for the job.  For S3 to S3 with different AWS credentials, objects must be downloaded from the source first and then uploaded.  To cater for large objects and to limit memory usage this is done utilizing multi parts of 5MB in size and will attempt to limit in memory storage.  This relies on GO garbage collector to tidy things up promptly which doesn't always happen.  Some further optimizations are WIP but expect this operation to consume a bit of memory.
