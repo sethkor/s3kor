@@ -444,6 +444,7 @@ func (u *multicopyer) copy() (*CopyOutput, error) {
 
 	params := &s3.CreateMultipartUploadInput{}
 	awsutil.Copy(params, u.in.Input)
+	params.Metadata = u.head.Metadata
 
 	// Create the multipart
 	resp, err := u.cfg.S3.CreateMultipartUploadWithContext(u.ctx, params, u.cfg.RequestOptions...)
