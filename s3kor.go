@@ -59,7 +59,11 @@ var (
 		s3.StorageClassGlacier,
 		s3.StorageClassOnezoneIa,
 		s3.StorageClassReducedRedundancy,
-		s3.StorageClassIntelligentTiering)
+		s3.StorageClassIntelligentTiering,
+		StorageClassOptimizeIA,
+		StorageClassOptimizeGlacier,
+		StorageClassOptimizeDeepArchive,
+	)
 	cpDestProfile = cp.Flag("dest-profile", "Destination bucket AWS credentials/config file profile to use if different from --profile").String()
 	cpAccelerate  = cp.Flag("accelerate", "Use S3 Acceleration").Default("false").Bool()
 
