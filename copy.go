@@ -89,6 +89,7 @@ type BucketCopier struct {
 	sizeChan   chan objectCounter
 	threads    semaphore
 	template   s3manager.UploadInput
+	optimize   *string
 	srcLister  *BucketLister
 	errors     chan copyError
 	errorList  copyErrorList
@@ -114,10 +115,32 @@ func (cp *BucketCopier) updateBars(count int64, size int64, timeSince time.Durat
 	}
 }
 
-func (cp *BucketCopier) copyFile(file string) {
+func (cp BucketCopier) optimizeStorageClass(size int64) string {
+	switch *cp.optimize {
+	case StorageClassOptimizeIA:
+		if size > StorageClassOptimizeIASize {
+			return s3.StorageClassStandardIa
+		}
+		break
+	case StorageClassOptimizeGlacier:
+		if size > StorageClassOptimizeGlacierSize {
+			return s3.StorageClassGlacier
+		}
+		break
+	case StorageClassOptimizeDeepArchive:
+		if size > StorageClassOptimizeDeepArchiveSize {
+			return s3.StorageClassDeepArchive
+		}
+		break
+	}
+
+	return s3.StorageClassStandard
+}
+
+func (cp *BucketCopier) copyFile(file fileJob) {
 	var logger = zap.S()
 
-	f, err := os.Open(filepath.Clean(file))
+	f, err := os.Open(filepath.Join(cp.source.Path, filepath.Clean(file.path)))
 	if err != nil {
 		logger.Errorf("failed to open file %q, %v", file, err)
 
@@ -129,8 +152,12 @@ func (cp *BucketCopier) copyFile(file string) {
 	} else {
 		// Upload the file to S3.
 		input := cp.template
-		input.Key = aws.String(cp.dest.Path + "/" + file[cp.sourceLength:])
+		input.Key = aws.String(cp.dest.Path + "/" + file.path)
 		input.Body = f
+
+		if cp.optimize != nil {
+			input.StorageClass = aws.String(cp.optimizeStorageClass(file.info.Size()))
+		}
 		_, err = cp.uploadManager.Upload(&input)
 
 		if err != nil {
@@ -170,7 +197,7 @@ func (cp *BucketCopier) uploadFile() func(file fileJob) {
 				}
 			}
 		} else {
-			cp.copyFile(file.path)
+			cp.copyFile(file)
 		}
 		cp.updateBars(1, file.info.Size(), time.Since(start))
 	}
@@ -338,6 +365,10 @@ func (cp *BucketCopier) copyObjects() func(object *s3.Object) {
 			copyInput.Key = aws.String(cp.dest.Path + "/" + (*object.Key))
 		}
 
+		if cp.optimize != nil {
+			copyInput.StorageClass = aws.String(cp.optimizeStorageClass(*object.Size))
+		}
+
 		if *object.Size <= MaxCopyPartSize {
 
 			_, err := cp.uploadManager.S3.CopyObject(&copyInput)
@@ -479,7 +510,17 @@ func (cp *BucketCopier) copyFileToS3() {
 	} else {
 		if !isDir {
 			// single file copy
-			cp.copyFile(cp.source.Path)
+
+			info, err := os.Lstat(cp.source.Path)
+			if err != nil {
+				var logger = zap.S()
+				logger.Fatal(err)
+			}
+
+			cp.copyFile(fileJob{
+				path: cp.source.Path,
+				info: info,
+			})
 
 			if !cp.quiet {
 				cp.bars.count.SetTotal(1, true)
@@ -594,6 +635,13 @@ func NewBucketCopier(detectRegion bool, source string, dest string, threads int,
 		wg:        sync.WaitGroup{},
 		template:  template,
 		errors:    make(chan copyError, threads),
+	}
+
+	//check to see if we are using an s3kor optimization class, we need some special handling now and later
+	switch *template.StorageClass {
+	case StorageClassOptimizeIA, StorageClassOptimizeGlacier, StorageClassOptimizeDeepArchive:
+		cp.optimize = template.StorageClass
+		cp.template.StorageClass = aws.String(s3.StorageClassStandard)
 	}
 
 	if cp.source.Scheme != "s3" {

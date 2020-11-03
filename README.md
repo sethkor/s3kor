@@ -110,6 +110,15 @@ And remember the performance of the source storage device is important, you don'
 
 Meta data is copied when copying from S3 to S3.
 
+As well as the usualy S3 storage classes, you can specify some additional classes:
+* `S3KOR_OPT_IA`: optimize to `STANDARD_IA` for files greater than 128K
+* `S3KOR_OPT_GLACIER`: optimize to `GLACIER` for files greater than 12K
+* `S3KOR_OPT_DEEPARCHIVE`: optimise to `GLACIER_DEEPARCHIVE` for files greater than 4K
+
+These additional storage classes instruct s3kor to optimise the storage class based on the source object/file size.  Doing 
+this when copying the object/file removes the need for a lifecycle transition event to do the transition for you which can become
+very expensive when you have a bucket with a lot of objects.
+
 ### Supports different AWS account credentials for source and destination buckets
 
 If you ever need to copy objects to an account which you don't own and need a seperate set of AWS credentials to access it, s3kor is perfect for the job.  For S3 to S3 with different AWS credentials, objects must be downloaded from the source first and then uploaded.  To cater for large objects and to limit memory usage this is done utilizing multi parts of 5MB in size and will attempt to limit in memory storage.  This relies on GO garbage collector to tidy things up promptly which doesn't always happen.  Some further optimizations are WIP but expect this operation to consume a bit of memory.
