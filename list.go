@@ -199,6 +199,7 @@ func (bl *BucketLister) listObjects(withSize bool) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			default:
+				fmt.Println(aerr.Error())
 				logger.Fatal(aerr.Error())
 			}
 		} else {
