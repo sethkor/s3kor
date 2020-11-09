@@ -138,7 +138,7 @@ func (sy *BucketSyncer) syncFileToS3() {
 	wg.Wait()
 	for file := range sy.files {
 		copyFile := true
-		if details, ok := sy.destMap[file.path[sy.sourceLength:]]; ok {
+		if details, ok := sy.destMap[file.path]; ok {
 			if details.lastModified.After(file.info.ModTime()) && *details.size == file.info.Size() {
 				copyFile = false
 			}
@@ -174,7 +174,7 @@ func (sy *BucketSyncer) syncObjToFile(wg *sync.WaitGroup) func(item []*s3.Object
 
 		for _, object := range item {
 			copyObj := true
-			if details, ok := sy.destMap[basePath+(*object.Key)]; ok {
+			if details, ok := sy.destMap[*object.Key]; ok {
 				if details.lastModified.After(*object.LastModified) {
 					if *details.size == *object.Size {
 						copyObj = false
