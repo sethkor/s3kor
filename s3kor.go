@@ -24,7 +24,7 @@ import (
 var (
 	app = kingpin.New("s3kor", "s3 tools using golang concurency")
 
-	pCustomEndpointUrl = app.Flag("custom-endpoint-url", "AWS S3 Custom Endpoint URL)").String()
+	pCustomEndpointUrl = app.Flag("custom-endpoint-url", "AWS S3 Custom Endpoint URL").String()
 	pProfile           = app.Flag("profile", "AWS credentials/config file profile to use").String()
 	pRegion            = app.Flag("region", "AWS region").String()
 	pDetectRegion      = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
@@ -150,6 +150,11 @@ func setUpLogger() {
 	logger.Debug("Logging enabled")
 
 }
+
+
+// cfg := aws.NewConfig().WithRegion(s3Config.S3Region).WithCredentials(creds)
+// cfg := aws.NewConfig().WithRegion(s3Config.S3Region).WithCredentials(creds).WithEndpoint(s3Config.S3Endpoint).WithHTTPClient(httpClient)
+// svc = s3.New(session.New(), cfg)
 
 func getAwsConfig() aws.Config {
 	if *pCustomEndpointUrl == "" {
