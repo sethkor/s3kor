@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 )
 
@@ -151,40 +150,35 @@ func setUpLogger() {
 
 }
 
-
-// cfg := aws.NewConfig().WithRegion(s3Config.S3Region).WithCredentials(creds)
-// cfg := aws.NewConfig().WithRegion(s3Config.S3Region).WithCredentials(creds).WithEndpoint(s3Config.S3Endpoint).WithHTTPClient(httpClient)
-// svc = s3.New(session.New(), cfg)
-
 func getAwsConfig() aws.Config {
 	if *pCustomEndpointUrl == "" {
-		return aws.Config{
+		config := aws.Config{
 			CredentialsChainVerboseErrors: aws.Bool(true),
 			MaxRetries:                    aws.Int(30),
 		}
-	}
-	if *pRegion == "" {
-		fmt.Printf("Error: if you use a custom endpoint, you must also specify it's region. Should start with http:// or https://. An interesing value is 'snowball'\n")
-		os.Exit(1)
-	}
 
-	s3CustResolverFn := func(service, region string, optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-		if service == "s3" {
-			return endpoints.ResolvedEndpoint{
-				URL:           *pCustomEndpointUrl,
-				SigningRegion: region,
-			}, nil
+		if *pRegion != "" {
+			config.Region = aws.String(*pRegion)
 		}
 
-		return endpoints.DefaultResolver().EndpointFor(service, region, optFns...)
+		return config
 	}
+
 	fmt.Printf("Using custom endpoint [%+v] on region [%+v]\n", *pCustomEndpointUrl, *pRegion)
-	return aws.Config{
-		Region:                        aws.String(*pRegion),
-		EndpointResolver:              endpoints.ResolverFunc(s3CustResolverFn),
+	config := aws.Config{
+		Endpoint:                      aws.String(*pCustomEndpointUrl),
 		CredentialsChainVerboseErrors: aws.Bool(true),
 		MaxRetries:                    aws.Int(30),
+		S3ForcePathStyle:              aws.Bool(true),
 	}
+
+	if *pRegion != "" {
+		config.Region = aws.String(*pRegion)
+	} else {
+		config.Region = aws.String("customendpoint")
+	}
+
+	return config
 }
 
 func getAwsSession() *session.Session {
@@ -204,9 +198,6 @@ func getAwsSession() *session.Session {
 		}))
 	} //else
 
-	if *pRegion != "" {
-		sess.Config.Region = aws.String(*pRegion)
-	}
 	return sess
 }
 

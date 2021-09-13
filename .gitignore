@@ -2,6 +2,7 @@
 dist/
 s3kor.linux
 s3kor.mac
+s3kor.mac.gz
 s3kor.linux.gz
 s3kor
 s3kor.windows
