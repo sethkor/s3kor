@@ -16,16 +16,19 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 )
 
 ///Command line flags
 var (
-	app           = kingpin.New("s3kor", "s3 tools using golang concurency")
-	pProfile      = app.Flag("profile", "AWS credentials/config file profile to use").String()
-	pRegion       = app.Flag("region", "AWS region").String()
-	pDetectRegion = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
-	pVerbose      = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
+	app = kingpin.New("s3kor", "s3 tools using golang concurency")
+
+	pCustomEndpointUrl = app.Flag("custom-endpoint-url", "AWS S3 Custom Endpoint URL)").String()
+	pProfile           = app.Flag("profile", "AWS credentials/config file profile to use").String()
+	pRegion            = app.Flag("region", "AWS region").String()
+	pDetectRegion      = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
+	pVerbose           = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
@@ -148,6 +151,37 @@ func setUpLogger() {
 
 }
 
+func getAwsConfig() aws.Config {
+	if *pCustomEndpointUrl == "" {
+		return aws.Config{
+			CredentialsChainVerboseErrors: aws.Bool(true),
+			MaxRetries:                    aws.Int(30),
+		}
+	}
+	if *pRegion == "" {
+		fmt.Printf("Error: if you use a custom endpoint, you must also specify it's region. Should start with http:// or https://. An interesing value is 'snowball'\n")
+		os.Exit(1)
+	}
+
+	s3CustResolverFn := func(service, region string, optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
+		if service == "s3" {
+			return endpoints.ResolvedEndpoint{
+				URL:           *pCustomEndpointUrl,
+				SigningRegion: region,
+			}, nil
+		}
+
+		return endpoints.DefaultResolver().EndpointFor(service, region, optFns...)
+	}
+	fmt.Printf("Using custom endpoint [%+v] on region [%+v]\n", *pCustomEndpointUrl, *pRegion)
+	return aws.Config{
+		Region:                        aws.String(*pRegion),
+		EndpointResolver:              endpoints.ResolverFunc(s3CustResolverFn),
+		CredentialsChainVerboseErrors: aws.Bool(true),
+		MaxRetries:                    aws.Int(30),
+	}
+}
+
 func getAwsSession() *session.Session {
 	var sess *session.Session
 	if *pProfile != "" {
@@ -155,19 +189,13 @@ func getAwsSession() *session.Session {
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			Profile:           *pProfile,
 			SharedConfigState: session.SharedConfigEnable,
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				MaxRetries:                    aws.Int(30),
-			},
+			Config:            getAwsConfig(),
 		}))
 
 	} else {
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			SharedConfigState: session.SharedConfigEnable,
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				MaxRetries:                    aws.Int(30),
-			},
+			Config:            getAwsConfig(),
 		}))
 	} //else
 
