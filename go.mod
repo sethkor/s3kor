@@ -1,4 +1,4 @@
-module github.com/naemono/s3kor
+module github.com/sethkor/s3kor
 
 go 1.14
 
