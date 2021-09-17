@@ -152,7 +152,7 @@ func (cp *BucketCopier) copyFile(file fileJob) {
 	} else {
 		// Upload the file to S3.
 		input := cp.template
-		input.Key = aws.String(cp.dest.Path + "/" + file.path)
+		input.Key = aws.String(cp.dest.Path + "/" + filepath.Base(file.path))
 		input.Body = f
 
 		if cp.optimize != nil {
