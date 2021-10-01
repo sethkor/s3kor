@@ -21,11 +21,13 @@ import (
 
 ///Command line flags
 var (
-	app           = kingpin.New("s3kor", "s3 tools using golang concurency")
-	pProfile      = app.Flag("profile", "AWS credentials/config file profile to use").String()
-	pRegion       = app.Flag("region", "AWS region").String()
-	pDetectRegion = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
-	pVerbose      = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
+	app = kingpin.New("s3kor", "s3 tools using golang concurency")
+
+	pCustomEndpointUrl = app.Flag("custom-endpoint-url", "AWS S3 Custom Endpoint URL").String()
+	pProfile           = app.Flag("profile", "AWS credentials/config file profile to use").String()
+	pRegion            = app.Flag("region", "AWS region").String()
+	pDetectRegion      = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
+	pVerbose           = app.Flag("verbose", "Verbose Logging").Default("false").Bool()
 
 	rm            = app.Command("rm", "remove")
 	rmQuiet       = rm.Flag("quiet", "Does not display the operations performed from the specified command.").Short('q').Default("false").Bool()
@@ -148,6 +150,37 @@ func setUpLogger() {
 
 }
 
+func getAwsConfig() aws.Config {
+	if *pCustomEndpointUrl == "" {
+		config := aws.Config{
+			CredentialsChainVerboseErrors: aws.Bool(true),
+			MaxRetries:                    aws.Int(30),
+		}
+
+		if *pRegion != "" {
+			config.Region = aws.String(*pRegion)
+		}
+
+		return config
+	}
+
+	fmt.Printf("Using custom endpoint [%+v] on region [%+v]\n", *pCustomEndpointUrl, *pRegion)
+	config := aws.Config{
+		Endpoint:                      aws.String(*pCustomEndpointUrl),
+		CredentialsChainVerboseErrors: aws.Bool(true),
+		MaxRetries:                    aws.Int(30),
+		S3ForcePathStyle:              aws.Bool(true),
+	}
+
+	if *pRegion != "" {
+		config.Region = aws.String(*pRegion)
+	} else {
+		config.Region = aws.String("customendpoint")
+	}
+
+	return config
+}
+
 func getAwsSession() *session.Session {
 	var sess *session.Session
 	if *pProfile != "" {
@@ -155,25 +188,16 @@ func getAwsSession() *session.Session {
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			Profile:           *pProfile,
 			SharedConfigState: session.SharedConfigEnable,
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				MaxRetries:                    aws.Int(30),
-			},
+			Config:            getAwsConfig(),
 		}))
 
 	} else {
 		sess = session.Must(session.NewSessionWithOptions(session.Options{
 			SharedConfigState: session.SharedConfigEnable,
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				MaxRetries:                    aws.Int(30),
-			},
+			Config:            getAwsConfig(),
 		}))
 	} //else
 
-	if *pRegion != "" {
-		sess.Config.Region = aws.String(*pRegion)
-	}
 	return sess
 }
 
