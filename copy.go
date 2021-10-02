@@ -2,8 +2,6 @@ package main
 
 import (
 	"errors"
-	"github.com/vbauerster/mpb/v5"
-	"github.com/vbauerster/mpb/v5/decor"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,11 +9,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/vbauerster/mpb/v5"
+	"github.com/vbauerster/mpb/v5/decor"
 	"go.uber.org/zap"
 )
 
@@ -136,15 +135,10 @@ func (cp BucketCopier) optimizeStorageClass(size int64) string {
 	return s3.StorageClassStandard
 }
 
-func (cp *BucketCopier) copyFile(file fileJob, singleFile bool) {
+func (cp *BucketCopier) copyFile(file fileJob) {
 	var logger = zap.S()
 
-	source_path := filepath.Join(cp.source.Path, filepath.Clean(file.path))
-	if singleFile {
-		source_path = cp.source.Path
-	}
-
-	f, err := os.Open(source_path)
+	f, err := os.Open(filepath.Join(filepath.Dir(cp.source.Path), filepath.Base(file.path)))
 	if err != nil {
 		logger.Errorf("failed to open file %q, %v", file, err)
 
@@ -156,16 +150,9 @@ func (cp *BucketCopier) copyFile(file fileJob, singleFile bool) {
 	} else {
 		// Upload the file to S3.
 		input := cp.template
-		if singleFile {
-			if cp.dest.Path == "" {
-				input.Key = aws.String(cp.dest.Path + "/" + file.path)
-			}
-			input.Key = aws.String(cp.dest.Path)
-		} else {
-			input.Key = aws.String(cp.dest.Path + "/" + file.path)
-		}
+		input.Key = aws.String(cp.dest.Path + "/" + filepath.Base(file.path))
 		input.Body = f
-		// fmt.Printf("[%+v] --> [%+v]\n", source_path, *input.Key)
+
 		if cp.optimize != nil {
 			input.StorageClass = aws.String(cp.optimizeStorageClass(file.info.Size()))
 		}
@@ -208,7 +195,7 @@ func (cp *BucketCopier) uploadFile() func(file fileJob) {
 				}
 			}
 		} else {
-			cp.copyFile(file, false)
+			cp.copyFile(file)
 		}
 		cp.updateBars(1, file.info.Size(), time.Since(start))
 	}
@@ -531,7 +518,7 @@ func (cp *BucketCopier) copyFileToS3() {
 			cp.copyFile(fileJob{
 				path: cp.source.Path,
 				info: info,
-			}, true)
+			})
 
 			if !cp.quiet {
 				cp.bars.count.SetTotal(1, true)

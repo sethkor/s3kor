@@ -23,7 +23,7 @@ import (
 var (
 	app = kingpin.New("s3kor", "s3 tools using golang concurency")
 
-	pCustomEndpointUrl = app.Flag("custom-endpoint-url", "AWS S3 Custom Endpoint URL").String()
+	pCustomEndpointURL = app.Flag("custom-endpoint-url", "AWS S3 Custom Endpoint URL").String()
 	pProfile           = app.Flag("profile", "AWS credentials/config file profile to use").String()
 	pRegion            = app.Flag("region", "AWS region").String()
 	pDetectRegion      = app.Flag("detect-region", "Auto detect region for the buckets").Default("false").Bool()
@@ -151,28 +151,23 @@ func setUpLogger() {
 }
 
 func getAwsConfig() aws.Config {
-	if *pCustomEndpointUrl == "" {
-		config := aws.Config{
-			CredentialsChainVerboseErrors: aws.Bool(true),
-			MaxRetries:                    aws.Int(30),
-		}
+	config := aws.Config{
+		CredentialsChainVerboseErrors: aws.Bool(true),
+		MaxRetries:                    aws.Int(30),
+	}
 
-		if *pRegion != "" {
+	if pCustomEndpointURL == nil || (pCustomEndpointURL != nil && *pCustomEndpointURL == "") {
+		if pRegion != nil && *pRegion != "" {
 			config.Region = aws.String(*pRegion)
 		}
-
 		return config
 	}
 
-	fmt.Printf("Using custom endpoint [%+v] on region [%+v]\n", *pCustomEndpointUrl, *pRegion)
-	config := aws.Config{
-		Endpoint:                      aws.String(*pCustomEndpointUrl),
-		CredentialsChainVerboseErrors: aws.Bool(true),
-		MaxRetries:                    aws.Int(30),
-		S3ForcePathStyle:              aws.Bool(true),
-	}
+	fmt.Printf("Using custom endpoint [%+v] on region [%+v]\n", *pCustomEndpointURL, *pRegion)
+	config.Endpoint = aws.String(*pCustomEndpointURL)
+	config.S3ForcePathStyle = aws.Bool(true)
 
-	if *pRegion != "" {
+	if pRegion != nil && *pRegion != "" {
 		config.Region = aws.String(*pRegion)
 	} else {
 		config.Region = aws.String("customendpoint")
