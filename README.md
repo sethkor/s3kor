@@ -41,11 +41,12 @@ usage: s3kor [<flags>] <command> [<args> ...]
 s3 tools using golang concurency
 
 Flags:
-  --help             Show context-sensitive help (also try --help-long and --help-man).
-  --profile=PROFILE  AWS credentials/config file profile to use
-  --region=REGION    AWS region
-  --verbose          Verbose Logging
-  --version          Show application version.
+  --help                                    Show context-sensitive help (also try --help-long and --help-man).
+  --custom-endpoint-url=CUSTOM-ENDPOINT-URL AWS S3 Custom Endpoint URL
+  --profile=PROFILE                         AWS credentials/config file profile to use
+  --region=REGION                           AWS region
+  --verbose                                 Verbose Logging
+  --version                                 Show application version.
 
 Commands:
   help [<command>...]
@@ -59,7 +60,7 @@ Commands:
 
   cp [<flags>] <source> <destination>
     copy
-   
+
   sync [<flags>] <source> <destination>
     sync
 
@@ -69,6 +70,16 @@ Commands:
 
 ### Automatic region detection for your buckets
 All commands can take the `--auto-region` flag to automatically detect the right region for your bucket operation, rather than you passing the specific region with `--region`.
+
+### Custom Endpoints
+
+All commands can take the `--custom-endpoint-url=CUSTOM-ENDPOINT-URL` to use a custom endpoint. This has been tested with an AWS SnowBall ( https://aws.amazon.com/snowball/ ) and also AWS VPC S3 Endpoint ( https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints-s3.html ).
+
+Example with a Snowball:
+
+`s3kor --custom-endpoint-url=http://10.20.30.40:8080 --profile=snowball ls s3://name-of-the-snowball-bucket/`
+
+
 
 ## Copy - cp
 This is WIP, some further features to come.  Features available:
@@ -85,11 +96,11 @@ Please raise an issue if theres a specific feature you. would like considered or
   -r, --recursive               Recursively copy
   -c, --concurrent=50           Maximum number of concurrent uploads to S3.
       --sse=AES256              Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.
-      --sse-kms-key-id=SSE-KMS-KEY-ID  
+      --sse-kms-key-id=SSE-KMS-KEY-ID
                                 The AWS KMS key ID that should be used to server-side encrypt the object in S3.
       --acl=private             Object ACL
       --storage-class=STANDARD  Storage Class
-      --dest-profile=DEST-PROFILE  
+      --dest-profile=DEST-PROFILE
                                 Destination bucket AWS credentials/config file profile to use if different from --profile
       --accelerate              Use S3 Acceleration
 
@@ -98,7 +109,7 @@ Args:
   <destination>  file or s3 location
 ```
 
-The maximum concurrent uploads (`--concurrent` or `-c`) is dependent not only on your upload bandwidth but also the maximum open file limits per process on your system and the performance of the soucre drive.  
+The maximum concurrent uploads (`--concurrent` or `-c`) is dependent not only on your upload bandwidth but also the maximum open file limits per process on your system and the performance of the soucre drive.
 
 You can check your file limits in linux, macos and other flavour of OS with `ulimit -n`.  Changing this limit in the os is possible and not always dangerous.  Instructions on how to change it vary between OS so they are not described here.  `s3kor` impacts these limits both in walking the file system and uploading the file so there is not a 1 to 1 correlation between the max limit ond the value you pass to `--concurrent`.  Try to pass `s3kor` a max value that is about 20% less than the systems max limit value.
 
@@ -115,7 +126,7 @@ As well as the usualy S3 storage classes, you can specify some additional classe
 * `S3KOR_OPT_GLACIER`: optimize to `GLACIER` for files greater than 12K
 * `S3KOR_OPT_DEEPARCHIVE`: optimise to `GLACIER_DEEPARCHIVE` for files greater than 4K
 
-These additional storage classes instruct s3kor to optimise the storage class based on the source object/file size.  Doing 
+These additional storage classes instruct s3kor to optimise the storage class based on the source object/file size.  Doing
 this when copying the object/file removes the need for a lifecycle transition event to do the transition for you which can become
 very expensive when you have a bucket with a lot of objects.
 
@@ -138,7 +149,7 @@ Sets the ACL for the object when the command is performed. If you use this param
 Defaults to `private`
 
 ### Storage Class
-The type of storage to use for the object. Valid choices are: `STANDARD`, `EDUCED_REDUNDANCY`, `STANDARD_IA`, `ONEZONE_IA`, `INTELLIGENT_TIERING`, `GLACIER`, `DEEP_ARCHIVE`. 
+The type of storage to use for the object. Valid choices are: `STANDARD`, `EDUCED_REDUNDANCY`, `STANDARD_IA`, `ONEZONE_IA`, `INTELLIGENT_TIERING`, `GLACIER`, `DEEP_ARCHIVE`.
 
 Defaults to `STANDARD`
 
@@ -164,7 +175,7 @@ You can list all versions if you like, the version id is outputted first:
 ```
       --all-versions     List all versions
 ```
-  
+
 ## Sync
 Features available:
 
@@ -179,19 +190,19 @@ Sync only compares mod timestamps and sizes as the only true way to get a MD5 or
   -q, --quiet                   Does not display the operations performed from the specified command.
   -c, --concurrent=50           Maximum number of concurrent uploads to S3.
       --sse=AES256              Specifies server-side encryption of the object in S3. Valid values are AES256 and aws:kms.
-      --sse-kms-key-id=SSE-KMS-KEY-ID  
+      --sse-kms-key-id=SSE-KMS-KEY-ID
                                 The AWS KMS key ID that should be used to server-side encrypt the object in S3.
       --acl=private             Object ACL
       --storage-class=STANDARD  Storage Class
-      --dest-profile=DEST-PROFILE  
+      --dest-profile=DEST-PROFILE
                                 Destination bucket AWS credentials/config file profile to use if different from --profile
       --accelerate              Use S3 Acceleration
-                                
+
 Args:
   <source>       file or s3 location
   <destination>  file or s3 location
 ```
-  
+
 
 
 
